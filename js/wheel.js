@@ -218,6 +218,9 @@
   // ---------------------------------------------------------------------------
   // Swipe gesture
   // ---------------------------------------------------------------------------
+  // Velocity amplifier: small phone screen needs boost to feel like a big roulette wheel
+  const VELOCITY_BOOST = 3.0;
+
   function _attachTouch() {
     // Get angle of touch relative to wheel center
     function _touchAngle(touch) {
@@ -276,23 +279,29 @@
       dragging = false;
 
       // Calculate flick velocity from recent touch history
-      let flickVel = 0;
+      let rawVel = 0;
       if (touchVelocityHistory.length >= 2) {
         const totalDelta = touchVelocityHistory.reduce((sum, v) => sum + v.delta, 0);
         const first = touchVelocityHistory[0].time;
         const last = touchVelocityHistory[touchVelocityHistory.length - 1].time;
         const timeSpan = (last - first) / 1000;
         if (timeSpan > 0.005) {
-          flickVel = totalDelta / timeSpan; // rad/s
+          rawVel = totalDelta / timeSpan; // rad/s
         }
       }
 
-      // Allow high velocities for fast flicks (up to 50 rad/s)
-      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 50);
+      // Amplify: small screen needs boost to feel like a big roulette wheel
+      let flickVel = rawVel * VELOCITY_BOOST;
+
+      // Cap at 80 rad/s
+      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 80);
+
+      // Debug: show velocity on screen (temporary)
+      const dbg = document.getElementById('spinning-label');
+      if (dbg) dbg.textContent = `Vel: ${Math.abs(flickVel).toFixed(1)} rad/s (raw: ${Math.abs(rawVel).toFixed(1)})`;
 
       if (phase === 'ready') {
-        // User flicked the wheel
-        if (Math.abs(flickVel) > 1.5) {
+        if (Math.abs(flickVel) > 2.0) {
           wheelAngularVel = flickVel;
           wheelLaunchTime = performance.now();
           phase = 'wheelCoasting';
@@ -300,9 +309,7 @@
           _scheduleRender();
         }
       } else if (phase === 'wheelCoasting') {
-        // User flicked the ball
-        if (Math.abs(flickVel) > 1.0) {
-          // Ball goes in the direction of the flick
+        if (Math.abs(flickVel) > 1.5) {
           const ballVel = flickVel * (0.8 + Math.random() * 0.4);
           if (onBallFlick) onBallFlick(ballVel);
         }
@@ -344,22 +351,23 @@
     window.addEventListener('mouseup', () => {
       if (!dragging) return;
       dragging = false;
-      let flickVel = 0;
+      let rawVel = 0;
       if (touchVelocityHistory.length >= 2) {
         const totalDelta = touchVelocityHistory.reduce((sum, v) => sum + v.delta, 0);
         const first = touchVelocityHistory[0].time;
         const last = touchVelocityHistory[touchVelocityHistory.length - 1].time;
         const timeSpan = (last - first) / 1000;
-        if (timeSpan > 0.005) flickVel = totalDelta / timeSpan;
+        if (timeSpan > 0.005) rawVel = totalDelta / timeSpan;
       }
-      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 50);
-      if (phase === 'ready' && Math.abs(flickVel) > 1.5) {
+      let flickVel = rawVel * VELOCITY_BOOST;
+      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 80);
+      if (phase === 'ready' && Math.abs(flickVel) > 2.0) {
         wheelAngularVel = flickVel;
         wheelLaunchTime = performance.now();
         phase = 'wheelCoasting';
         if (onWheelFlick) onWheelFlick(flickVel);
         _scheduleRender();
-      } else if (phase === 'wheelCoasting' && Math.abs(flickVel) > 1.0) {
+      } else if (phase === 'wheelCoasting' && Math.abs(flickVel) > 1.5) {
         const ballVel = flickVel * (0.8 + Math.random() * 0.4);
         if (onBallFlick) onBallFlick(ballVel);
       }
