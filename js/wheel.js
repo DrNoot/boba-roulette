@@ -252,8 +252,8 @@
       // Track velocity: store recent deltas with timestamps
       const now = performance.now();
       touchVelocityHistory.push({ delta, time: now });
-      // Keep only last 100ms of samples
-      while (touchVelocityHistory.length > 0 && now - touchVelocityHistory[0].time > 100) {
+      // Keep only last 250ms of samples (per spin-wheel library best practice)
+      while (touchVelocityHistory.length > 0 && now - touchVelocityHistory[0].time > 250) {
         touchVelocityHistory.shift();
       }
 
@@ -323,7 +323,7 @@
       wheelAngle += delta;
       const now = performance.now();
       touchVelocityHistory.push({ delta, time: now });
-      while (touchVelocityHistory.length > 0 && now - touchVelocityHistory[0].time > 100) {
+      while (touchVelocityHistory.length > 0 && now - touchVelocityHistory[0].time > 250) {
         touchVelocityHistory.shift();
       }
       lastTouchAngle = currentAngle;
@@ -406,9 +406,9 @@
       ballAngle      += ballAngularVel * dt;
       ballAngularVel *= Math.pow(BALL_FRICTION, dt * 60);
 
-      // Ball drops inward as it slows
+      // Ball drops inward as it slows (quadratic for dramatic late drop, like real centrifugal force)
       const speedRatio = Math.min(1, Math.abs(ballAngularVel) / Math.abs(initialBallSpeed));
-      ballRadius = lerp(outerR * 0.65, ballOrbitRadius, speedRatio);
+      ballRadius = lerp(outerR * 0.65, ballOrbitRadius, speedRatio * speedRatio);
 
       // Update trail
       const cx = logicalSize / 2;
