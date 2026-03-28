@@ -15,11 +15,11 @@
     '#6a4c93','#1982c4','#ff6b6b','#06d6a0','#bc8cff','#f0883e',
   ];
 
-  // Physics constants
-  const WHEEL_FRICTION    = 0.97;   // per-frame factor at 60 fps
-  const BALL_FRICTION     = 0.955;
-  const SETTLE_THRESHOLD  = 0.8;    // rad/s: ball drops into wheel
-  const SETTLE_DURATION   = 1.5;    // seconds for settle animation
+  // Physics constants — low friction = long suspenseful spins (~8-12 seconds)
+  const WHEEL_FRICTION    = 0.9955;  // per-frame factor at 60 fps (~10s spin)
+  const BALL_FRICTION     = 0.993;   // ball slows faster than wheel (~7-8s)
+  const SETTLE_THRESHOLD  = 0.35;    // rad/s: ball barely moving before drop
+  const SETTLE_DURATION   = 2.0;     // seconds for dramatic settle animation
 
   // ---------------------------------------------------------------------------
   // Easing
@@ -63,6 +63,7 @@
   let settleStartAngle = 0, settleTargetAngle = 0;
   let settleStartRadius = 0;
   let settleTargetRadius = 0;
+  let settleWheelAngleStart = 0; // wheel angle when settle began
 
   // Swipe
   let swipeEnabled = true;
@@ -115,11 +116,11 @@
     ballTrail          = [];
     settleProgress     = 0;
 
-    // Wheel spins clockwise (positive)
-    wheelAngularVel = 12 + Math.random() * 6;
+    // Wheel spins clockwise — high initial speed for suspense
+    wheelAngularVel = 18 + Math.random() * 8;
 
-    // Ball spins counter-clockwise (negative), faster than wheel
-    initialBallSpeed = -(8 + Math.random() * 6);
+    // Ball spins counter-clockwise, faster than wheel
+    initialBallSpeed = -(14 + Math.random() * 8);
     ballAngularVel   = initialBallSpeed;
 
     // Ball starts at the top of the rim
@@ -194,9 +195,9 @@
         initialBallSpeed = -swipeDir * vel * (0.6 + Math.random() * 0.3);
         ballAngularVel   = initialBallSpeed;
       } else {
-        // Tap: random defaults
-        wheelAngularVel  = 12 + Math.random() * 6;
-        initialBallSpeed = -(8 + Math.random() * 6);
+        // Tap: random defaults (matching spin() velocities)
+        wheelAngularVel  = 18 + Math.random() * 8;
+        initialBallSpeed = -(14 + Math.random() * 8);
         ballAngularVel   = initialBallSpeed;
       }
     }, { passive: true });
@@ -218,7 +219,9 @@
     _update(dt);
     _drawFrame();
 
-    if (phase !== 'idle' && phase !== 'done') {
+    // Keep animating while spinning/settling, or while wheel is still drifting
+    const wheelStillMoving = Math.abs(wheelAngularVel) > 0.01;
+    if (phase !== 'idle' || wheelStillMoving) {
       rafId = requestAnimationFrame(_onRaf);
     } else {
       lastTimestamp = null;
@@ -229,11 +232,15 @@
   // Physics update
   // ---------------------------------------------------------------------------
   function _update(dt) {
-    if (phase === 'idle' || phase === 'done') return;
+    // Wheel keeps drifting even after ball settles (realistic)
+    if (Math.abs(wheelAngularVel) > 0.01) {
+      wheelAngle      += wheelAngularVel * dt;
+      wheelAngularVel *= Math.pow(WHEEL_FRICTION, dt * 60);
+    } else {
+      wheelAngularVel = 0;
+    }
 
-    // Wheel always decelerates
-    wheelAngle      += wheelAngularVel * dt;
-    wheelAngularVel *= Math.pow(WHEEL_FRICTION, dt * 60);
+    if (phase === 'idle' || phase === 'done') return;
 
     if (phase === 'spinning') {
       ballAngle      += ballAngularVel * dt;
@@ -253,10 +260,11 @@
 
       if (Math.abs(ballAngularVel) < SETTLE_THRESHOLD) {
         _computeSettleTarget();
-        phase          = 'settling';
-        settleProgress = 0;
-        settleStartAngle  = ballAngle;
-        settleStartRadius = ballRadius;
+        phase               = 'settling';
+        settleProgress      = 0;
+        settleStartAngle    = ballAngle;
+        settleStartRadius   = ballRadius;
+        settleWheelAngleStart = wheelAngle;
       }
 
     } else if (phase === 'settling') {
@@ -278,8 +286,10 @@
       }
 
       const t = settleProgress;
-      // Angle: linear interpolation to target
-      ballAngle  = lerp(settleStartAngle, settleTargetAngle, t);
+      // Compensate for wheel rotation during settle so ball tracks the segment
+      const wheelDrift = wheelAngle - settleWheelAngleStart;
+      // Angle: linear interpolation to target, adjusted for wheel drift
+      ballAngle  = lerp(settleStartAngle, settleTargetAngle, t) + wheelDrift;
       // Radius: easeOutBounce for the "drop into slot" feel
       ballRadius = lerp(settleStartRadius, settleTargetRadius, easeOutBounce(t));
     }
