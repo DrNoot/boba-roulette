@@ -1,90 +1,75 @@
 /**
- * BobaWheel - HTML5 Canvas roulette wheel renderer
- * Exposes window.BobaWheel with: init, setSegments, spin, isSpinning, render, setTickCallback
+ * BobaWheel - HTML5 Canvas roulette wheel with real physics
+ * Wheel and ball are independent objects with separate angular velocities.
+ * Exposes window.BobaWheel: init, setSegments, spin, isSpinning, render,
+ *   setTickCallback, enableSwipe
  */
 (function (global) {
   'use strict';
 
-  // ---------------------------------------------------------------------------
-  // Constants
-  // ---------------------------------------------------------------------------
-  const DEFAULT_COLORS = [
-    '#e63946', '#f4a261', '#2a9d8f', '#e9c46a',
-    '#6a4c93', '#1982c4', '#ff6b6b', '#06d6a0',
-    '#bc8cff', '#f0883e',
-  ];
-
-  const TWO_PI = Math.PI * 2;
+  const TWO_PI  = Math.PI * 2;
   const HALF_PI = Math.PI / 2;
 
-  // Phase durations (ms)
-  const SPIN_DURATION  = 4500; // wheel spin + ball orbit
-  const SETTLE_DURATION = 1500; // ball spirals inward
+  const DEFAULT_COLORS = [
+    '#e63946','#f4a261','#2a9d8f','#e9c46a',
+    '#6a4c93','#1982c4','#ff6b6b','#06d6a0','#bc8cff','#f0883e',
+  ];
+
+  // Physics constants
+  const WHEEL_FRICTION    = 0.97;   // per-frame factor at 60 fps
+  const BALL_FRICTION     = 0.955;
+  const SETTLE_THRESHOLD  = 0.8;    // rad/s: ball drops into wheel
+  const SETTLE_DURATION   = 1.5;    // seconds for settle animation
 
   // ---------------------------------------------------------------------------
-  // Easing functions
+  // Easing
   // ---------------------------------------------------------------------------
-  function easeOutQuint(t) {
-    return 1 - Math.pow(1 - t, 5);
-  }
-
   function easeOutBounce(t) {
-    const n1 = 7.5625;
-    const d1 = 2.75;
-    if (t < 1 / d1) {
-      return n1 * t * t;
-    } else if (t < 2 / d1) {
-      t -= 1.5 / d1;
-      return n1 * t * t + 0.75;
-    } else if (t < 2.5 / d1) {
-      t -= 2.25 / d1;
-      return n1 * t * t + 0.9375;
-    } else {
-      t -= 2.625 / d1;
-      return n1 * t * t + 0.984375;
-    }
+    const n1 = 7.5625, d1 = 2.75;
+    if (t < 1 / d1)       return n1 * t * t;
+    if (t < 2 / d1)       { t -= 1.5  / d1; return n1 * t * t + 0.75; }
+    if (t < 2.5 / d1)     { t -= 2.25 / d1; return n1 * t * t + 0.9375; }
+    t -= 2.625 / d1; return n1 * t * t + 0.984375;
   }
+
+  function lerp(a, b, t) { return a + (b - a) * t; }
 
   // ---------------------------------------------------------------------------
   // State
   // ---------------------------------------------------------------------------
-  let canvas = null;
-  let ctx    = null;
-  let dpr    = 1;
-
-  // Logical size (CSS pixels)
+  let canvas = null, ctx = null, dpr = 1;
   let logicalSize = 400;
+  let outerR = 0, rimR = 0, ballOrbitRadius = 0;
 
-  // Segments
-  let originalSegments = [];   // {name, color} as provided by caller
-  let displaySegments  = [];   // possibly duplicated for visual fullness, each has {name, color, originalIndex}
+  let originalSegments = [], displaySegments = [];
 
-  // Wheel rotation (radians, cumulative)
-  let wheelAngle = 0;
+  // Wheel physics
+  let wheelAngle = 0, wheelAngularVel = 0;
 
-  // Spin animation state
-  let spinning       = false;
-  let spinStartTime  = null;
-  let spinStartAngle = 0;
-  let spinEndAngle   = 0;
-  let spinWinnerIdx  = 0;   // index into originalSegments
+  // Ball physics
+  let ballAngle = 0, ballAngularVel = 0;
+  let ballRadius = 0, initialBallSpeed = 0;
+  let ballTrail = []; // [{x,y,alpha}] for motion blur
+
+  // Spin state
+  let phase = 'idle'; // idle | spinning | settling | done
+  let spinWinnerIdx = 0;
   let onCompleteCallback = null;
-  let phase          = 'idle'; // 'idle' | 'spin' | 'settle' | 'done'
-
-  // Ball state
-  let ballAngle       = 0;    // absolute angle from centre (radians)
-  let ballRadius      = 0;    // distance from centre (logical px)
-  let ballOrbitRadius = 0;    // set during init / resize
-  let ballTargetAngle = 0;    // final resting angle
-  let ballTargetRadius = 0;   // final resting distance from centre
-  let lastBallSegment = -1;   // for tick detection
-  let ballTotalRevs   = 0;    // fixed revolution count set at spin start
-
-  // Callbacks
+  let lastBallSegment = -1;
   let tickCallback = null;
 
-  // RAF handle
-  let rafId = null;
+  // Settle state
+  let settleProgress = 0;
+  let settleStartAngle = 0, settleTargetAngle = 0;
+  let settleStartRadius = 0;
+  let settleTargetRadius = 0;
+
+  // Swipe
+  let swipeEnabled = true;
+  let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+
+  // RAF
+  let rafId = null, lastTimestamp = null;
 
   // ---------------------------------------------------------------------------
   // Public API
@@ -92,132 +77,134 @@
   function init(canvasElement) {
     canvas = canvasElement;
     ctx    = canvas.getContext('2d');
-
     canvas.style.touchAction = 'none';
-
     _resize();
-
     window.addEventListener('resize', _resize);
-
+    _attachSwipe();
     _scheduleRender();
   }
 
   function setSegments(segments) {
     if (!segments || segments.length === 0) return;
-
     originalSegments = segments.map((s, i) => ({
       name:  s.name  || `Option ${i + 1}`,
       color: s.color || DEFAULT_COLORS[i % DEFAULT_COLORS.length],
     }));
-
-    // If fewer than 6 segments, duplicate to fill visually
     displaySegments = [];
     if (originalSegments.length < 6) {
       const times = Math.ceil(6 / originalSegments.length);
       for (let t = 0; t < times; t++) {
-        originalSegments.forEach((seg, i) => {
-          displaySegments.push({ ...seg, originalIndex: i });
-        });
+        originalSegments.forEach((seg, i) =>
+          displaySegments.push({ ...seg, originalIndex: i }));
       }
     } else {
-      originalSegments.forEach((seg, i) => {
-        displaySegments.push({ ...seg, originalIndex: i });
-      });
+      originalSegments.forEach((seg, i) =>
+        displaySegments.push({ ...seg, originalIndex: i }));
     }
-
     _scheduleRender();
   }
 
   function spin(winnerIndex, onComplete) {
-    if (spinning) return;
+    if (phase === 'spinning' || phase === 'settling') return;
     if (!displaySegments.length) return;
 
-    spinning           = true;
-    phase              = 'spin';
-    spinStartTime      = null;
-    spinStartAngle     = wheelAngle;
+    phase              = 'spinning';
     spinWinnerIdx      = winnerIndex;
     onCompleteCallback = onComplete || null;
+    lastBallSegment    = -1;
+    ballTrail          = [];
+    settleProgress     = 0;
 
-    // Find first display segment that maps to the winner
-    const displayIdx = displaySegments.findIndex(s => s.originalIndex === winnerIndex);
-    const segCount   = displaySegments.length;
-    const segArc     = TWO_PI / segCount;
+    // Wheel spins clockwise (positive)
+    wheelAngularVel = 12 + Math.random() * 6;
 
-    // The pointer is at -PI/2 (top). We want the centre of the winner segment
-    // to sit under the pointer at the END of the spin.
-    //
-    // Segment i has its centre at: wheelAngle + i * segArc + segArc / 2
-    // We need that to equal -PI/2  (mod 2PI)
-    //
-    // targetWheelAngle = -PI/2 - (displayIdx * segArc + segArc / 2)
-    // Add N full revolutions (5-8) to make it look like a real spin.
+    // Ball spins counter-clockwise (negative), faster than wheel
+    initialBallSpeed = -(8 + Math.random() * 6);
+    ballAngularVel   = initialBallSpeed;
 
-    const revolutions = 5 + Math.floor(Math.random() * 4); // 5-8
-    const rawTarget   = -HALF_PI - (displayIdx * segArc + segArc * 0.5);
-
-    // Normalise so we always spin FORWARD (increasing angle)
-    let delta = (rawTarget - spinStartAngle) % TWO_PI;
-    if (delta <= 0) delta += TWO_PI;
-
-    spinEndAngle = spinStartAngle + revolutions * TWO_PI + delta;
-
-    // Ball starts on outer rim at the top (pointer position)
-    ballAngle        = -HALF_PI;
-    ballRadius       = ballOrbitRadius;
-    ballTotalRevs    = 6 + Math.random() * 3; // fixed for this spin
-    // Ball target: absolute position where the winning segment centre ends up
-    ballTargetAngle  = spinEndAngle + displayIdx * segArc + segArc * 0.5;
-    ballTargetRadius = logicalSize * 0.35; // ~mid-segment radially
-
-    lastBallSegment = -1;
+    // Ball starts at the top of the rim
+    ballAngle  = -HALF_PI;
+    ballRadius = ballOrbitRadius;
 
     _scheduleRender();
   }
 
   function isSpinning() {
-    return spinning;
+    return phase === 'spinning' || phase === 'settling';
   }
 
-  function render() {
-    _drawFrame();
-  }
+  function render() { _drawFrame(); }
 
-  function setTickCallback(fn) {
-    tickCallback = fn;
-  }
+  function setTickCallback(fn) { tickCallback = fn; }
+
+  function enableSwipe(enabled) { swipeEnabled = enabled; }
 
   // ---------------------------------------------------------------------------
-  // Resize handling
+  // Resize
   // ---------------------------------------------------------------------------
   function _resize() {
     dpr = window.devicePixelRatio || 1;
-
-    const parent = canvas.parentElement;
-    const maxSize = 480;
+    const parent    = canvas.parentElement;
     const available = parent
-      ? Math.min(parent.clientWidth, parent.clientHeight, maxSize)
-      : maxSize;
-
-    logicalSize = Math.max(available, 200);
+      ? Math.min(parent.clientWidth, parent.clientHeight, 400)
+      : 400;
+    logicalSize = Math.max(available * 0.95, 200);
 
     canvas.style.width  = logicalSize + 'px';
     canvas.style.height = logicalSize + 'px';
     canvas.width  = Math.round(logicalSize * dpr);
     canvas.height = Math.round(logicalSize * dpr);
 
-    // Update derived measurements
-    const r = logicalSize / 2;
-    ballOrbitRadius = r * 0.88; // ball orbits just inside the outer rim
+    outerR         = logicalSize / 2 * 0.92;
+    rimR           = logicalSize / 2 * 0.96;
+    ballOrbitRadius = logicalSize / 2 * 0.87;
 
     _scheduleRender();
   }
 
   // ---------------------------------------------------------------------------
+  // Swipe gesture
+  // ---------------------------------------------------------------------------
+  function _attachSwipe() {
+    canvas.addEventListener('touchstart', e => {
+      if (!swipeEnabled) return;
+      const t = e.touches[0];
+      touchStartX = t.clientX; touchStartY = t.clientY;
+      touchStartTime = performance.now();
+    }, { passive: true });
+
+    canvas.addEventListener('touchend', e => {
+      if (!swipeEnabled || isSpinning()) return;
+      const t = e.changedTouches[0];
+      const dx = t.clientX - touchStartX;
+      const dy = t.clientY - touchStartY;
+      const dt = (performance.now() - touchStartTime) / 1000;
+      const dist = Math.sqrt(dx * dx + dy * dy);
+      if (dt > 0 && dist > 20) {
+        const speed = dist / dt / logicalSize * 30; // map to rad/s range
+        const vel   = Math.min(Math.max(speed, 6), 20);
+        // Determine swipe direction relative to canvas centre
+        const cx = canvas.getBoundingClientRect().left + logicalSize / 2;
+        const cy = canvas.getBoundingClientRect().top  + logicalSize / 2;
+        const angle = Math.atan2(t.clientY - cy, t.clientX - cx);
+        const tangent = angle + HALF_PI; // tangent direction
+        const swipeDir = (Math.cos(tangent) * dx + Math.sin(tangent) * dy) > 0 ? 1 : -1;
+        wheelAngularVel = swipeDir * vel;
+        // Ball opposite
+        initialBallSpeed = -swipeDir * vel * (0.6 + Math.random() * 0.3);
+        ballAngularVel   = initialBallSpeed;
+      } else {
+        // Tap: random defaults
+        wheelAngularVel  = 12 + Math.random() * 6;
+        initialBallSpeed = -(8 + Math.random() * 6);
+        ballAngularVel   = initialBallSpeed;
+      }
+    }, { passive: true });
+  }
+
+  // ---------------------------------------------------------------------------
   // Animation loop
   // ---------------------------------------------------------------------------
-  let _lastTimestamp = null;
-
   function _scheduleRender() {
     if (rafId) return;
     rafId = requestAnimationFrame(_onRaf);
@@ -225,89 +212,110 @@
 
   function _onRaf(timestamp) {
     rafId = null;
+    const dt = lastTimestamp ? Math.min((timestamp - lastTimestamp) / 1000, 0.05) : 0.016;
+    lastTimestamp = timestamp;
 
-    const dt = _lastTimestamp ? Math.min(timestamp - _lastTimestamp, 50) : 16;
-    _lastTimestamp = timestamp;
-
-    _update(timestamp, dt);
+    _update(dt);
     _drawFrame();
 
-    // Keep looping while spinning or on first draw
-    if (spinning || phase !== 'idle') {
+    if (phase !== 'idle' && phase !== 'done') {
       rafId = requestAnimationFrame(_onRaf);
     } else {
-      _lastTimestamp = null;
+      lastTimestamp = null;
     }
   }
 
-  function _update(timestamp, _dt) {
+  // ---------------------------------------------------------------------------
+  // Physics update
+  // ---------------------------------------------------------------------------
+  function _update(dt) {
     if (phase === 'idle' || phase === 'done') return;
 
-    if (!spinStartTime) spinStartTime = timestamp;
+    // Wheel always decelerates
+    wheelAngle      += wheelAngularVel * dt;
+    wheelAngularVel *= Math.pow(WHEEL_FRICTION, dt * 60);
 
-    const elapsed = timestamp - spinStartTime;
+    if (phase === 'spinning') {
+      ballAngle      += ballAngularVel * dt;
+      ballAngularVel *= Math.pow(BALL_FRICTION, dt * 60);
 
-    if (phase === 'spin') {
-      const t = Math.min(elapsed / SPIN_DURATION, 1);
-      const ease = easeOutQuint(t);
+      // Ball drops inward as it slows
+      const speedRatio = Math.min(1, Math.abs(ballAngularVel) / Math.abs(initialBallSpeed));
+      ballRadius = lerp(outerR * 0.65, ballOrbitRadius, speedRatio);
 
-      // Wheel rotation
-      wheelAngle = spinStartAngle + (spinEndAngle - spinStartAngle) * ease;
+      // Update trail
+      const cx = logicalSize / 2;
+      const cy = logicalSize / 2;
+      ballTrail.unshift({ x: cx + ballRadius * Math.cos(ballAngle), y: cy + ballRadius * Math.sin(ballAngle) });
+      if (ballTrail.length > 5) ballTrail.length = 5;
 
-      // Ball orbits in OPPOSITE direction, decelerating with fixed revolution count
-      ballAngle  = -HALF_PI - easeOutQuint(t) * TWO_PI * ballTotalRevs;
-      ballRadius = ballOrbitRadius;
-
-      // Tick detection
       _detectTick();
 
-      if (t >= 1) {
-        // Capture ball state BEFORE switching phase
-        _settleStartAngle  = ballAngle;
-        _settleStartRadius = ballRadius;
-        spinStartTime      = timestamp;
-        phase              = 'settle';
+      if (Math.abs(ballAngularVel) < SETTLE_THRESHOLD) {
+        _computeSettleTarget();
+        phase          = 'settling';
+        settleProgress = 0;
+        settleStartAngle  = ballAngle;
+        settleStartRadius = ballRadius;
       }
 
-    } else if (phase === 'settle') {
-      const t = Math.min(elapsed / SETTLE_DURATION, 1);
-      const ease = easeOutBounce(t);
+    } else if (phase === 'settling') {
+      settleProgress += dt / SETTLE_DURATION;
 
-      // Ball spirals inward
-      ballRadius = _settleStartRadius - (_settleStartRadius - ballTargetRadius) * ease;
-
-      // Ball angle drifts to rest at the winning segment
-      ballAngle = _settleStartAngle + (ballTargetAngle - _settleStartAngle) * ease;
-
-      if (t >= 1) {
-        phase              = 'done';
-        spinning           = false;
-        _settleStartAngle  = null;
-        _settleStartRadius = 0;
+      if (settleProgress >= 1) {
+        settleProgress = 1;
+        ballAngle      = settleTargetAngle;
+        ballRadius     = settleTargetRadius;
+        phase          = 'done';
+        ballTrail      = [];
 
         if (onCompleteCallback) {
-          onCompleteCallback(spinWinnerIdx);
+          const cb = onCompleteCallback;
           onCompleteCallback = null;
+          cb(spinWinnerIdx);
         }
+        return;
       }
+
+      const t = settleProgress;
+      // Angle: linear interpolation to target
+      ballAngle  = lerp(settleStartAngle, settleTargetAngle, t);
+      // Radius: easeOutBounce for the "drop into slot" feel
+      ballRadius = lerp(settleStartRadius, settleTargetRadius, easeOutBounce(t));
     }
   }
 
-  // Persisted across settle phase
-  let _settleStartAngle  = null;
-  let _settleStartRadius = 0;
+  function _computeSettleTarget() {
+    const segCount = displaySegments.length;
+    const segArc   = TWO_PI / segCount;
+
+    // Find a display segment for the winner
+    const targetDispIdx = displaySegments.findIndex(s => s.originalIndex === spinWinnerIdx);
+
+    // Estimate remaining wheel rotation: v / ln(friction) * (1/60) approximation
+    const frictionLog        = Math.log(WHEEL_FRICTION) * 60;
+    const remainingWheelRot  = frictionLog !== 0 ? wheelAngularVel / (-frictionLog) : 0;
+    const futureWheelAngle   = wheelAngle + remainingWheelRot;
+
+    // The segment centre in absolute space when wheel comes to rest
+    const rawTarget = futureWheelAngle + targetDispIdx * segArc + segArc * 0.5;
+
+    // Choose nearest approach: find angle closest to current ballAngle
+    let diff = ((rawTarget - ballAngle) % TWO_PI + TWO_PI) % TWO_PI;
+    // Accept either direction — pick shortest path
+    if (diff > Math.PI) diff -= TWO_PI;
+    settleTargetAngle  = ballAngle + diff;
+    settleTargetRadius = outerR * 0.60;
+  }
 
   // ---------------------------------------------------------------------------
   // Tick detection
   // ---------------------------------------------------------------------------
   function _detectTick() {
     if (!tickCallback || !displaySegments.length) return;
-
     const segArc   = TWO_PI / displaySegments.length;
-    // Which segment is the ball over in wheel-space?
     const relAngle = ((ballAngle - wheelAngle) % TWO_PI + TWO_PI) % TWO_PI;
     const segIdx   = Math.floor(relAngle / segArc);
-
     if (segIdx !== lastBallSegment) {
       lastBallSegment = segIdx;
       tickCallback();
@@ -319,205 +327,150 @@
   // ---------------------------------------------------------------------------
   function _drawFrame() {
     if (!ctx) return;
-
-    const w = canvas.width;
-    const h = canvas.height;
-
     ctx.save();
     ctx.scale(dpr, dpr);
-
     ctx.clearRect(0, 0, logicalSize, logicalSize);
 
-    const cx = logicalSize / 2;
-    const cy = logicalSize / 2;
+    const cx = logicalSize / 2, cy = logicalSize / 2;
     const r  = logicalSize / 2;
 
     _drawWheel(cx, cy, r);
     _drawPointer(cx, cy, r);
-    _drawBall(cx, cy);
+    if (phase !== 'idle') _drawBall(cx, cy);
 
     ctx.restore();
   }
 
   function _drawWheel(cx, cy, r) {
     if (!displaySegments.length) {
-      _drawEmptyWheel(cx, cy, r);
+      ctx.beginPath(); ctx.arc(cx, cy, r * 0.92, 0, TWO_PI);
+      ctx.fillStyle = '#333'; ctx.fill();
       return;
     }
 
-    const outerR     = r * 0.92;
-    const rimR       = r * 0.96;
-    const hubR       = r * 0.08;
-    const segCount   = displaySegments.length;
-    const segArc     = TWO_PI / segCount;
-    const gapAngle   = 0.012; // radians of dark gap between segments
+    const hubR     = r * 0.08;
+    const segCount = displaySegments.length;
+    const segArc   = TWO_PI / segCount;
+    const gap      = 0.012;
 
-    // --- Outer metallic rim ---
+    // Outer metallic rim
     const rimGrad = ctx.createRadialGradient(cx, cy, outerR * 0.96, cx, cy, rimR);
-    rimGrad.addColorStop(0,   '#888');
-    rimGrad.addColorStop(0.4, '#ddd');
-    rimGrad.addColorStop(0.7, '#aaa');
-    rimGrad.addColorStop(1,   '#555');
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, rimR, 0, TWO_PI);
+    rimGrad.addColorStop(0, '#888'); rimGrad.addColorStop(0.4, '#ddd');
+    rimGrad.addColorStop(0.7, '#aaa'); rimGrad.addColorStop(1, '#555');
+    ctx.beginPath(); ctx.arc(cx, cy, rimR, 0, TWO_PI);
     ctx.arc(cx, cy, outerR, 0, TWO_PI, true);
-    ctx.fillStyle = rimGrad;
-    ctx.fill();
+    ctx.fillStyle = rimGrad; ctx.fill();
+    ctx.beginPath(); ctx.arc(cx, cy, rimR, 0, TWO_PI);
+    ctx.strokeStyle = 'rgba(0,0,0,0.45)'; ctx.lineWidth = 1.5; ctx.stroke();
 
-    // Subtle rim border
-    ctx.beginPath();
-    ctx.arc(cx, cy, rimR, 0, TWO_PI);
-    ctx.strokeStyle = 'rgba(0,0,0,0.45)';
-    ctx.lineWidth   = 1.5;
-    ctx.stroke();
-
-    // --- Segment slices ---
+    // Segment slices
     displaySegments.forEach((seg, i) => {
-      const startAngle = wheelAngle + i * segArc + gapAngle * 0.5;
-      const endAngle   = wheelAngle + (i + 1) * segArc - gapAngle * 0.5;
+      const startA = wheelAngle + i * segArc + gap * 0.5;
+      const endA   = wheelAngle + (i + 1) * segArc - gap * 0.5;
 
-      // Slight radial gradient per segment for depth
       const segGrad = ctx.createRadialGradient(cx, cy, hubR, cx, cy, outerR);
       segGrad.addColorStop(0,   _lighten(seg.color, 0.3));
       segGrad.addColorStop(0.6, seg.color);
       segGrad.addColorStop(1,   _darken(seg.color, 0.25));
 
-      ctx.beginPath();
-      ctx.moveTo(cx, cy);
-      ctx.arc(cx, cy, outerR, startAngle, endAngle);
-      ctx.closePath();
-      ctx.fillStyle = segGrad;
-      ctx.fill();
+      ctx.beginPath(); ctx.moveTo(cx, cy);
+      ctx.arc(cx, cy, outerR, startA, endA); ctx.closePath();
+      ctx.fillStyle = segGrad; ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.55)'; ctx.lineWidth = 1; ctx.stroke();
 
-      // Dark gap stroke
-      ctx.strokeStyle = 'rgba(0,0,0,0.55)';
-      ctx.lineWidth   = 1;
-      ctx.stroke();
-
-      // --- Label ---
-      _drawLabel(cx, cy, outerR, startAngle, endAngle, seg.name);
+      _drawLabel(cx, cy, outerR, startA, endA, seg.name, segCount);
     });
 
-    // --- Centre hub ---
-    const hubGrad = ctx.createRadialGradient(cx - hubR * 0.3, cy - hubR * 0.3, hubR * 0.05, cx, cy, hubR);
-    hubGrad.addColorStop(0,   '#555');
-    hubGrad.addColorStop(0.5, '#222');
-    hubGrad.addColorStop(1,   '#111');
-
-    ctx.beginPath();
-    ctx.arc(cx, cy, hubR, 0, TWO_PI);
-    ctx.fillStyle   = hubGrad;
-    ctx.fill();
-    ctx.strokeStyle = '#000';
-    ctx.lineWidth   = 1.5;
-    ctx.stroke();
+    // Centre hub
+    const hubGrad = ctx.createRadialGradient(
+      cx - hubR * 0.3, cy - hubR * 0.3, hubR * 0.05, cx, cy, hubR);
+    hubGrad.addColorStop(0, '#555'); hubGrad.addColorStop(0.5, '#222');
+    hubGrad.addColorStop(1, '#111');
+    ctx.beginPath(); ctx.arc(cx, cy, hubR, 0, TWO_PI);
+    ctx.fillStyle = hubGrad; ctx.fill();
+    ctx.strokeStyle = '#000'; ctx.lineWidth = 1.5; ctx.stroke();
   }
 
-  function _drawLabel(cx, cy, outerR, startAngle, endAngle, name) {
+  function _drawLabel(cx, cy, outerR, startAngle, endAngle, name, segCount) {
     const midAngle = (startAngle + endAngle) / 2;
-    const labelR   = outerR * 0.55;
+    const labelR   = outerR * 0.60;
+    const fontSize = Math.round(Math.max(9, Math.min(14, 150 / segCount)));
 
     ctx.save();
-    ctx.translate(cx, cy);
+    ctx.translate(cx + labelR * Math.cos(midAngle), cy + labelR * Math.sin(midAngle));
 
-    // Determine if text would be upside down
-    const normAngle = ((midAngle % TWO_PI) + TWO_PI) % TWO_PI;
-    const flip = normAngle > HALF_PI && normAngle < HALF_PI * 3;
+    // Flip text if it would be upside down
+    const norm = ((midAngle % TWO_PI) + TWO_PI) % TWO_PI;
+    const flip = norm > HALF_PI && norm < HALF_PI * 3;
+    ctx.rotate(flip ? midAngle + Math.PI : midAngle);
 
-    ctx.rotate(midAngle);
-    if (flip) {
-      ctx.rotate(Math.PI);
-      ctx.translate(-labelR, 0);
-    } else {
-      ctx.translate(labelR * 0.3, 0);
-    }
-
-    const segCount = displaySegments.length;
-    const fontSize = Math.max(8, Math.min(13, 140 / segCount));
-    ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
-    ctx.textAlign    = flip ? 'right' : 'left';
-    ctx.textBaseline = 'middle';
-
-    // Truncate name: remove parenthetical text, then clip to max chars
     let label = name.replace(/\s*\(.*\)/, '');
-    const maxChars = segCount > 10 ? 10 : 14;
+    const maxChars = segCount > 10 ? 9 : 13;
     if (label.length > maxChars) label = label.slice(0, maxChars - 1) + '..';
 
-    ctx.shadowColor = 'rgba(0,0,0,0.8)';
-    ctx.shadowBlur  = 4;
+    ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+    ctx.textAlign    = 'center';
+    ctx.textBaseline = 'middle';
+
+    // Black stroke outline for legibility on any color
+    ctx.lineWidth   = 2;
+    ctx.strokeStyle = 'rgba(0,0,0,0.85)';
+    ctx.strokeText(label, 0, 0);
     ctx.fillStyle   = '#ffffff';
     ctx.fillText(label, 0, 0);
 
     ctx.restore();
   }
 
-  function _drawEmptyWheel(cx, cy, r) {
-    ctx.beginPath();
-    ctx.arc(cx, cy, r * 0.92, 0, TWO_PI);
-    ctx.fillStyle   = '#333';
-    ctx.fill();
-    ctx.strokeStyle = '#555';
-    ctx.lineWidth   = 2;
-    ctx.stroke();
-  }
-
   function _drawPointer(cx, cy, r) {
-    // Red arrow at top (12 o'clock), pointing inward
-    const tipX   = cx;
-    const tipY   = cy - r * 0.88;  // points to just inside the rim
-    const baseY  = cy - r * 1.0;   // sits just outside the wheel
-    const halfW  = r * 0.04;
+    const tipY  = cy - r * 0.88;
+    const baseY = cy - r * 1.0;
+    const halfW = r * 0.04;
 
-    // Glow
     ctx.save();
-    ctx.shadowColor   = 'rgba(220, 30, 30, 0.7)';
-    ctx.shadowBlur    = 10;
-
+    ctx.shadowColor = 'rgba(220,30,30,0.7)';
+    ctx.shadowBlur  = 10;
     ctx.beginPath();
-    ctx.moveTo(tipX, tipY);
-    ctx.lineTo(tipX - halfW * 1.6, baseY - r * 0.025);
-    ctx.lineTo(tipX + halfW * 1.6, baseY - r * 0.025);
+    ctx.moveTo(cx, tipY);
+    ctx.lineTo(cx - halfW * 1.6, baseY - r * 0.025);
+    ctx.lineTo(cx + halfW * 1.6, baseY - r * 0.025);
     ctx.closePath();
-
-    ctx.fillStyle   = '#cc1111';
-    ctx.fill();
-    ctx.strokeStyle = '#880000';
-    ctx.lineWidth   = 1;
-    ctx.stroke();
-
+    ctx.fillStyle   = '#cc1111'; ctx.fill();
+    ctx.strokeStyle = '#880000'; ctx.lineWidth = 1; ctx.stroke();
     ctx.restore();
   }
 
   function _drawBall(cx, cy) {
-    if (phase === 'idle') return;
-
     const bx = cx + ballRadius * Math.cos(ballAngle);
     const by = cy + ballRadius * Math.sin(ballAngle);
-    const br = Math.max(4, logicalSize * 0.021); // ~10px at 480px
+    const br = Math.max(6, logicalSize * 0.025); // ~12px at 480px
 
-    // Drop shadow
+    // Trail: fading circles behind the ball
+    for (let i = 1; i < ballTrail.length; i++) {
+      const alpha = 0.25 * (1 - i / ballTrail.length);
+      const tr = br * (1 - i * 0.15);
+      ctx.beginPath();
+      ctx.arc(ballTrail[i].x, ballTrail[i].y, Math.max(tr, 2), 0, TWO_PI);
+      ctx.fillStyle = `rgba(220,220,220,${alpha.toFixed(2)})`;
+      ctx.fill();
+    }
+
+    // Ball
     ctx.save();
-    ctx.shadowColor   = 'rgba(0,0,0,0.5)';
-    ctx.shadowBlur    = 6;
+    ctx.shadowColor   = 'rgba(0,0,0,0.6)';
+    ctx.shadowBlur    = 8;
     ctx.shadowOffsetX = 2;
     ctx.shadowOffsetY = 2;
 
-    // Metallic radial gradient
     const grad = ctx.createRadialGradient(
-      bx - br * 0.35, by - br * 0.35, br * 0.05,
-      bx, by, br
-    );
+      bx - br * 0.35, by - br * 0.35, br * 0.05, bx, by, br);
     grad.addColorStop(0,   '#ffffff');
-    grad.addColorStop(0.4, '#d0d0d0');
-    grad.addColorStop(0.8, '#888888');
-    grad.addColorStop(1,   '#555555');
+    grad.addColorStop(0.35,'#e8e8e8');
+    grad.addColorStop(0.75,'#999999');
+    grad.addColorStop(1,   '#444444');
 
-    ctx.beginPath();
-    ctx.arc(bx, by, br, 0, TWO_PI);
-    ctx.fillStyle = grad;
-    ctx.fill();
-
+    ctx.beginPath(); ctx.arc(bx, by, br, 0, TWO_PI);
+    ctx.fillStyle = grad; ctx.fill();
     ctx.restore();
   }
 
@@ -525,38 +478,24 @@
   // Color helpers
   // ---------------------------------------------------------------------------
   function _hexToRgb(hex) {
-    const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
-    return result
-      ? { r: parseInt(result[1], 16), g: parseInt(result[2], 16), b: parseInt(result[3], 16) }
-      : { r: 128, g: 128, b: 128 };
+    const r = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex);
+    return r ? { r: parseInt(r[1],16), g: parseInt(r[2],16), b: parseInt(r[3],16) }
+             : { r: 128, g: 128, b: 128 };
   }
 
   function _lighten(hex, amount) {
     const { r, g, b } = _hexToRgb(hex);
-    const nr = Math.min(255, Math.round(r + (255 - r) * amount));
-    const ng = Math.min(255, Math.round(g + (255 - g) * amount));
-    const nb = Math.min(255, Math.round(b + (255 - b) * amount));
-    return `rgb(${nr},${ng},${nb})`;
+    return `rgb(${Math.min(255,Math.round(r+(255-r)*amount))},${Math.min(255,Math.round(g+(255-g)*amount))},${Math.min(255,Math.round(b+(255-b)*amount))})`;
   }
 
   function _darken(hex, amount) {
     const { r, g, b } = _hexToRgb(hex);
-    const nr = Math.max(0, Math.round(r * (1 - amount)));
-    const ng = Math.max(0, Math.round(g * (1 - amount)));
-    const nb = Math.max(0, Math.round(b * (1 - amount)));
-    return `rgb(${nr},${ng},${nb})`;
+    return `rgb(${Math.max(0,Math.round(r*(1-amount)))},${Math.max(0,Math.round(g*(1-amount)))},${Math.max(0,Math.round(b*(1-amount)))})`;
   }
 
   // ---------------------------------------------------------------------------
-  // Expose public API
+  // Expose
   // ---------------------------------------------------------------------------
-  global.BobaWheel = {
-    init,
-    setSegments,
-    spin,
-    isSpinning,
-    render,
-    setTickCallback,
-  };
+  global.BobaWheel = { init, setSegments, spin, isSpinning, render, setTickCallback, enableSwipe };
 
 }(window));

@@ -9,6 +9,8 @@
   <meta name="apple-mobile-web-app-title" content="Boba Roulette" />
   <meta name="description" content="Pick a boba spot before volleyball — let fate decide." />
   <link rel="manifest" href="manifest.json" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <title>Boba Roulette</title>
 
   <style>
@@ -1333,6 +1335,7 @@
       </div>
 
       <div class="route-info" id="route-info" style="display:none">
+        <div id="route-map" style="width:100%;height:200px;border-radius:12px;margin-bottom:10px;"></div>
         <div class="route-info-inner">
           <div class="route-leg" id="route-leg-1"></div>
           <div class="route-leg" id="route-leg-2"></div>

@@ -317,6 +317,7 @@
     document.getElementById('spinning-label').classList.add('visible');
     const ri = document.getElementById('route-info');
     if (ri) ri.style.display = 'none';
+    if (window._bobaMap) { window._bobaMap.remove(); window._bobaMap = null; }
 
     window.BobaAudio.playSpinStart();
     window.BobaWheel.spin(winnerIdx, onSpinComplete);
@@ -387,6 +388,8 @@
     totalEl.innerHTML = `<span>Total trip</span><span>${totalMin} min (+${Math.max(0, extraMin)} vs direct)</span>`;
 
     routeInfo.style.display = '';
+
+    renderRouteMap(startObj, place, venueObj, startName, place.name, venueName);
   }
 
   // ---------------------------------------------------------------------------
@@ -643,6 +646,55 @@
         if (countEl) countEl.textContent = state.settings.vetoes[person];
       });
     });
+  }
+
+  // ---------------------------------------------------------------------------
+  // Map rendering (Leaflet)
+  // ---------------------------------------------------------------------------
+  function renderRouteMap(startObj, bobaPlace, venueObj, startName, bobaName, venueName) {
+    const mapDiv = document.getElementById('route-map');
+    if (!mapDiv || typeof L === 'undefined') return;
+
+    // Clear previous map
+    if (window._bobaMap) {
+      window._bobaMap.remove();
+      window._bobaMap = null;
+    }
+
+    const map = L.map('route-map', {
+      zoomControl: false,
+      attributionControl: false,
+      dragging: true,
+      touchZoom: true,
+      scrollWheelZoom: false,
+    });
+    window._bobaMap = map;
+
+    // Dark tile layer
+    L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+      maxZoom: 19,
+    }).addTo(map);
+
+    const startLatLng = [startObj.lat, startObj.lng];
+    const bobaLatLng  = [bobaPlace.lat, bobaPlace.lng];
+    const venueLatLng = [venueObj.lat, venueObj.lng];
+
+    // Circle markers: green = start, orange = boba, blue = venue
+    L.circleMarker(startLatLng, {radius: 8, color: '#3fb950', fillColor: '#3fb950', fillOpacity: 0.9, weight: 2})
+      .bindPopup(startName).addTo(map);
+    L.circleMarker(bobaLatLng, {radius: 10, color: '#f97316', fillColor: '#f97316', fillOpacity: 0.9, weight: 2})
+      .bindPopup(bobaName).addTo(map);
+    L.circleMarker(venueLatLng, {radius: 8, color: '#58a6ff', fillColor: '#58a6ff', fillOpacity: 0.9, weight: 2})
+      .bindPopup(venueName).addTo(map);
+
+    // Leg 1: start -> boba (dashed green)
+    L.polyline([startLatLng, bobaLatLng], {color: '#3fb950', weight: 3, opacity: 0.7, dashArray: '8,6'}).addTo(map);
+    // Leg 2: boba -> venue (dashed blue)
+    L.polyline([bobaLatLng, venueLatLng], {color: '#58a6ff', weight: 3, opacity: 0.7, dashArray: '8,6'}).addTo(map);
+
+    // Fit bounds to show all three points
+    const bounds = L.latLngBounds([startLatLng, bobaLatLng, venueLatLng]);
+    map.fitBounds(bounds, {padding: [30, 30]});
   }
 
   // ---------------------------------------------------------------------------
