@@ -267,18 +267,19 @@
       dragging = false;
 
       // Calculate flick velocity from recent touch history
-      const now = performance.now();
       let flickVel = 0;
       if (touchVelocityHistory.length >= 2) {
         const totalDelta = touchVelocityHistory.reduce((sum, v) => sum + v.delta, 0);
-        const timeSpan = (now - touchVelocityHistory[0].time) / 1000;
-        if (timeSpan > 0.001) {
+        const first = touchVelocityHistory[0].time;
+        const last = touchVelocityHistory[touchVelocityHistory.length - 1].time;
+        const timeSpan = (last - first) / 1000;
+        if (timeSpan > 0.005) {
           flickVel = totalDelta / timeSpan; // rad/s
         }
       }
 
-      // Clamp velocity to reasonable range
-      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 30);
+      // Allow high velocities for fast flicks (up to 50 rad/s)
+      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 50);
 
       if (phase === 'ready') {
         // User flicked the wheel
@@ -333,14 +334,15 @@
     window.addEventListener('mouseup', () => {
       if (!dragging) return;
       dragging = false;
-      const now = performance.now();
       let flickVel = 0;
       if (touchVelocityHistory.length >= 2) {
         const totalDelta = touchVelocityHistory.reduce((sum, v) => sum + v.delta, 0);
-        const timeSpan = (now - touchVelocityHistory[0].time) / 1000;
-        if (timeSpan > 0.001) flickVel = totalDelta / timeSpan;
+        const first = touchVelocityHistory[0].time;
+        const last = touchVelocityHistory[touchVelocityHistory.length - 1].time;
+        const timeSpan = (last - first) / 1000;
+        if (timeSpan > 0.005) flickVel = totalDelta / timeSpan;
       }
-      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 30);
+      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 50);
       if (phase === 'ready' && Math.abs(flickVel) > 1.5) {
         wheelAngularVel = flickVel;
         phase = 'wheelCoasting';
