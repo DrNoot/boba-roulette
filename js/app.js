@@ -278,6 +278,8 @@
   // ---------------------------------------------------------------------------
   // Spin flow
   // ---------------------------------------------------------------------------
+  let pendingSelected = []; // places waiting for user to swipe
+
   function onSpinClick() {
     const selected = window.BobaData.places.filter(p =>
       state.selectedPlaceIds.includes(p.id)
@@ -293,34 +295,61 @@
       audioInitialized = true;
     }
 
-    showView('view-wheel', 'slide-right');
-    startSpin(selected);
+    pendingSelected = selected;
+    showWheelReady(selected);
   }
 
-  function startSpin(selected) {
+  function showWheelReady(selected) {
+    pendingSelected = selected;
+
+    // Set up wheel segments without spinning
+    const segments = selected.map(place => {
+      const origIdx = window.BobaData.places.findIndex(p => p.id === place.id);
+      return { name: place.name, color: CHIP_COLORS[origIdx % 10] };
+    });
+    window.BobaWheel.setSegments(segments);
+    window.BobaWheel.setReady();
+
+    // Reset UI
+    document.getElementById('result-overlay').classList.remove('visible');
+    document.getElementById('wheel-post-spin').style.display = 'none';
+    const ri = document.getElementById('route-info');
+    if (ri) ri.style.display = 'none';
+    if (window._bobaMap) { window._bobaMap.remove(); window._bobaMap = null; }
+
+    // Show prompt
+    const spinLabel = document.getElementById('spinning-label');
+    if (spinLabel) {
+      spinLabel.textContent = 'Drag the wheel to spin it!';
+      spinLabel.classList.add('visible');
+    }
+
+    showView('view-wheel', 'slide-right');
+  }
+
+  function onWheelFlicked(wheelVel) {
+    // Wheel was flicked -- show prompt to flick ball
+    const spinLabel = document.getElementById('spinning-label');
+    if (spinLabel) {
+      spinLabel.textContent = 'Now flick the ball!';
+    }
+    window.BobaAudio.playSpinStart();
+  }
+
+  function onBallFlicked(ballVel) {
+    if (!pendingSelected.length) return;
+    const selected = pendingSelected;
+
+    // Pick winner and launch ball
     const winnerIdx = pickWinner(selected);
     const winner = selected[winnerIdx];
     const detourMin = getDetourForPlace(winner);
     lastWinner = { place: winner, detourMin };
 
-    // Map selected places to wheel segments (use original palette index)
-    const segments = selected.map(place => {
-      const origIdx = window.BobaData.places.findIndex(p => p.id === place.id);
-      return { name: place.name, color: CHIP_COLORS[origIdx % 10] };
-    });
+    const spinLabel = document.getElementById('spinning-label');
+    if (spinLabel) spinLabel.textContent = 'Spinning...';
 
-    window.BobaWheel.setSegments(segments);
-
-    // Hide result, show spinning label
-    document.getElementById('result-overlay').classList.remove('visible');
-    document.getElementById('wheel-post-spin').style.display = 'none';
-    document.getElementById('spinning-label').classList.add('visible');
-    const ri = document.getElementById('route-info');
-    if (ri) ri.style.display = 'none';
-    if (window._bobaMap) { window._bobaMap.remove(); window._bobaMap = null; }
-
-    window.BobaAudio.playSpinStart();
-    window.BobaWheel.spin(winnerIdx, onSpinComplete);
+    window.BobaWheel.launchBall(winnerIdx, onSpinComplete, ballVel);
   }
 
   function onSpinComplete() {
@@ -428,7 +457,7 @@
       showToast('Select at least 2 places');
       return;
     }
-    startSpin(selected);
+    showWheelReady(selected);
   }
 
   // ---------------------------------------------------------------------------
@@ -716,6 +745,8 @@
     if (wheelCanvas) {
       window.BobaWheel.init(wheelCanvas);
       window.BobaWheel.setTickCallback(() => window.BobaAudio.playTick());
+      window.BobaWheel.setWheelFlickCallback(onWheelFlicked);
+      window.BobaWheel.setBallFlickCallback(onBallFlicked);
     }
 
     // Init confetti on document.body (global overlay)

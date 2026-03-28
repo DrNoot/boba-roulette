@@ -52,7 +52,13 @@
   let ballTrail = []; // [{x,y,alpha}] for motion blur
 
   // Spin state
-  let phase = 'idle'; // idle | spinning | settling | done
+  // Phases: idle | ready | wheelCoasting | ballLaunched | settling | done
+  //  ready = wheel shown, user can drag/flick it
+  //  wheelCoasting = wheel spinning from user flick, waiting for ball flick
+  //  ballLaunched = both spinning independently
+  //  settling = ball dropping into slot
+  //  done = result shown
+  let phase = 'idle';
   let spinWinnerIdx = 0;
   let onCompleteCallback = null;
   let lastBallSegment = -1;
@@ -63,11 +69,14 @@
   let settleStartAngle = 0, settleTargetAngle = 0;
   let settleStartRadius = 0;
   let settleTargetRadius = 0;
-  let settleWheelAngleStart = 0; // wheel angle when settle began
+  let settleWheelAngleStart = 0;
 
-  // Swipe
+  // Touch interaction state
   let swipeEnabled = true;
-  let touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+  let dragging = false;
+  let lastTouchAngle = 0;
+  let touchVelocityHistory = []; // recent angular velocities for flick detection
+  let touchStartTime = 0;
 
   // RAF
   let rafId = null, lastTimestamp = null;
@@ -81,7 +90,7 @@
     canvas.style.touchAction = 'none';
     _resize();
     window.addEventListener('resize', _resize);
-    _attachSwipe();
+    _attachTouch();
     _scheduleRender();
   }
 
@@ -105,40 +114,74 @@
     _scheduleRender();
   }
 
+  // Enter ready state: wheel is shown, user can interact
+  function setReady() {
+    phase = 'ready';
+    wheelAngularVel = 0;
+    ballAngularVel = 0;
+    ballTrail = [];
+    _scheduleRender();
+  }
+
+  // Programmatic spin (bypasses manual interaction)
   function spin(winnerIndex, onComplete) {
-    if (phase === 'spinning' || phase === 'settling') return;
+    if (phase === 'ballLaunched' || phase === 'settling') return;
     if (!displaySegments.length) return;
 
-    phase              = 'spinning';
     spinWinnerIdx      = winnerIndex;
     onCompleteCallback = onComplete || null;
     lastBallSegment    = -1;
     ballTrail          = [];
     settleProgress     = 0;
 
-    // Wheel spins clockwise — high initial speed for suspense
-    wheelAngularVel = 18 + Math.random() * 8;
-
-    // Ball spins counter-clockwise, faster than wheel
+    wheelAngularVel  = 18 + Math.random() * 8;
     initialBallSpeed = -(14 + Math.random() * 8);
     ballAngularVel   = initialBallSpeed;
-
-    // Ball starts at the top of the rim
     ballAngle  = -HALF_PI;
     ballRadius = ballOrbitRadius;
+    phase = 'ballLaunched';
 
     _scheduleRender();
   }
 
-  function isSpinning() {
-    return phase === 'spinning' || phase === 'settling';
+  // Launch ball with given velocity (called by app.js after user flicks ball)
+  function launchBall(winnerIndex, onComplete, ballVel) {
+    if (phase !== 'wheelCoasting') return;
+
+    spinWinnerIdx      = winnerIndex;
+    onCompleteCallback = onComplete || null;
+    lastBallSegment    = -1;
+    ballTrail          = [];
+    settleProgress     = 0;
+
+    initialBallSpeed = ballVel;
+    ballAngularVel   = ballVel;
+    ballAngle  = -HALF_PI;
+    ballRadius = ballOrbitRadius;
+    phase = 'ballLaunched';
   }
+
+  function isSpinning() {
+    return phase === 'wheelCoasting' || phase === 'ballLaunched' || phase === 'settling';
+  }
+
+  function isReady() {
+    return phase === 'ready';
+  }
+
+  function getPhase() { return phase; }
 
   function render() { _drawFrame(); }
 
   function setTickCallback(fn) { tickCallback = fn; }
 
   function enableSwipe(enabled) { swipeEnabled = enabled; }
+
+  // Callbacks for app.js
+  let onWheelFlick = null;  // called when wheel gets flicked (user launched wheel)
+  let onBallFlick = null;   // called when ball area is flicked
+  function setWheelFlickCallback(fn) { onWheelFlick = fn; }
+  function setBallFlickCallback(fn) { onBallFlick = fn; }
 
   // ---------------------------------------------------------------------------
   // Resize
@@ -166,41 +209,148 @@
   // ---------------------------------------------------------------------------
   // Swipe gesture
   // ---------------------------------------------------------------------------
-  function _attachSwipe() {
+  function _attachTouch() {
+    // Get angle of touch relative to wheel center
+    function _touchAngle(touch) {
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      return Math.atan2(touch.clientY - cy, touch.clientX - cx);
+    }
+
     canvas.addEventListener('touchstart', e => {
       if (!swipeEnabled) return;
-      const t = e.touches[0];
-      touchStartX = t.clientX; touchStartY = t.clientY;
+      if (phase === 'ballLaunched' || phase === 'settling') return;
+
+      const touch = e.touches[0];
+      dragging = true;
+      lastTouchAngle = _touchAngle(touch);
+      touchVelocityHistory = [];
       touchStartTime = performance.now();
-    }, { passive: true });
+
+      // If in ready state, stop any residual wheel motion so user "grabs" it
+      if (phase === 'ready') {
+        wheelAngularVel = 0;
+      }
+      e.preventDefault();
+    }, { passive: false });
+
+    canvas.addEventListener('touchmove', e => {
+      if (!dragging) return;
+      const touch = e.touches[0];
+      const currentAngle = _touchAngle(touch);
+
+      // Angular delta (how much the finger moved around the wheel)
+      let delta = currentAngle - lastTouchAngle;
+      // Handle wrap-around at +/-PI
+      if (delta > Math.PI) delta -= TWO_PI;
+      if (delta < -Math.PI) delta += TWO_PI;
+
+      // Apply rotation directly (1:1 with finger movement)
+      wheelAngle += delta;
+
+      // Track velocity: store recent deltas with timestamps
+      const now = performance.now();
+      touchVelocityHistory.push({ delta, time: now });
+      // Keep only last 100ms of samples
+      while (touchVelocityHistory.length > 0 && now - touchVelocityHistory[0].time > 100) {
+        touchVelocityHistory.shift();
+      }
+
+      lastTouchAngle = currentAngle;
+      _scheduleRender();
+      e.preventDefault();
+    }, { passive: false });
 
     canvas.addEventListener('touchend', e => {
-      if (!swipeEnabled || isSpinning()) return;
-      const t = e.changedTouches[0];
-      const dx = t.clientX - touchStartX;
-      const dy = t.clientY - touchStartY;
-      const dt = (performance.now() - touchStartTime) / 1000;
-      const dist = Math.sqrt(dx * dx + dy * dy);
-      if (dt > 0 && dist > 20) {
-        const speed = dist / dt / logicalSize * 30; // map to rad/s range
-        const vel   = Math.min(Math.max(speed, 6), 20);
-        // Determine swipe direction relative to canvas centre
-        const cx = canvas.getBoundingClientRect().left + logicalSize / 2;
-        const cy = canvas.getBoundingClientRect().top  + logicalSize / 2;
-        const angle = Math.atan2(t.clientY - cy, t.clientX - cx);
-        const tangent = angle + HALF_PI; // tangent direction
-        const swipeDir = (Math.cos(tangent) * dx + Math.sin(tangent) * dy) > 0 ? 1 : -1;
-        wheelAngularVel = swipeDir * vel;
-        // Ball opposite
-        initialBallSpeed = -swipeDir * vel * (0.6 + Math.random() * 0.3);
-        ballAngularVel   = initialBallSpeed;
-      } else {
-        // Tap: random defaults (matching spin() velocities)
-        wheelAngularVel  = 18 + Math.random() * 8;
-        initialBallSpeed = -(14 + Math.random() * 8);
-        ballAngularVel   = initialBallSpeed;
+      if (!dragging) return;
+      dragging = false;
+
+      // Calculate flick velocity from recent touch history
+      const now = performance.now();
+      let flickVel = 0;
+      if (touchVelocityHistory.length >= 2) {
+        const totalDelta = touchVelocityHistory.reduce((sum, v) => sum + v.delta, 0);
+        const timeSpan = (now - touchVelocityHistory[0].time) / 1000;
+        if (timeSpan > 0.001) {
+          flickVel = totalDelta / timeSpan; // rad/s
+        }
+      }
+
+      // Clamp velocity to reasonable range
+      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 30);
+
+      if (phase === 'ready') {
+        // User flicked the wheel
+        if (Math.abs(flickVel) > 1.5) {
+          wheelAngularVel = flickVel;
+          phase = 'wheelCoasting';
+          if (onWheelFlick) onWheelFlick(flickVel);
+          _scheduleRender();
+        }
+      } else if (phase === 'wheelCoasting') {
+        // User flicked the ball
+        if (Math.abs(flickVel) > 1.0) {
+          // Ball goes in the direction of the flick
+          const ballVel = flickVel * (0.8 + Math.random() * 0.4);
+          if (onBallFlick) onBallFlick(ballVel);
+        }
       }
     }, { passive: true });
+
+    // Also support mouse for desktop testing
+    canvas.addEventListener('mousedown', e => {
+      if (!swipeEnabled) return;
+      if (phase === 'ballLaunched' || phase === 'settling') return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      dragging = true;
+      lastTouchAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
+      touchVelocityHistory = [];
+      if (phase === 'ready') wheelAngularVel = 0;
+    });
+
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      const rect = canvas.getBoundingClientRect();
+      const cx = rect.left + rect.width / 2;
+      const cy = rect.top + rect.height / 2;
+      const currentAngle = Math.atan2(e.clientY - cy, e.clientX - cx);
+      let delta = currentAngle - lastTouchAngle;
+      if (delta > Math.PI) delta -= TWO_PI;
+      if (delta < -Math.PI) delta += TWO_PI;
+      wheelAngle += delta;
+      const now = performance.now();
+      touchVelocityHistory.push({ delta, time: now });
+      while (touchVelocityHistory.length > 0 && now - touchVelocityHistory[0].time > 100) {
+        touchVelocityHistory.shift();
+      }
+      lastTouchAngle = currentAngle;
+      _scheduleRender();
+    });
+
+    window.addEventListener('mouseup', () => {
+      if (!dragging) return;
+      dragging = false;
+      const now = performance.now();
+      let flickVel = 0;
+      if (touchVelocityHistory.length >= 2) {
+        const totalDelta = touchVelocityHistory.reduce((sum, v) => sum + v.delta, 0);
+        const timeSpan = (now - touchVelocityHistory[0].time) / 1000;
+        if (timeSpan > 0.001) flickVel = totalDelta / timeSpan;
+      }
+      flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 30);
+      if (phase === 'ready' && Math.abs(flickVel) > 1.5) {
+        wheelAngularVel = flickVel;
+        phase = 'wheelCoasting';
+        if (onWheelFlick) onWheelFlick(flickVel);
+        _scheduleRender();
+      } else if (phase === 'wheelCoasting' && Math.abs(flickVel) > 1.0) {
+        const ballVel = flickVel * (0.8 + Math.random() * 0.4);
+        if (onBallFlick) onBallFlick(ballVel);
+      }
+    });
   }
 
   // ---------------------------------------------------------------------------
@@ -219,9 +369,9 @@
     _update(dt);
     _drawFrame();
 
-    // Keep animating while spinning/settling, or while wheel is still drifting
-    const wheelStillMoving = Math.abs(wheelAngularVel) > 0.01;
-    if (phase !== 'idle' || wheelStillMoving) {
+    // Keep animating while any phase is active or wheel is moving
+    const wheelStillMoving = Math.abs(wheelAngularVel) > 0.01 || dragging;
+    if ((phase !== 'idle' && phase !== 'done') || wheelStillMoving) {
       rafId = requestAnimationFrame(_onRaf);
     } else {
       lastTimestamp = null;
@@ -232,17 +382,27 @@
   // Physics update
   // ---------------------------------------------------------------------------
   function _update(dt) {
-    // Wheel keeps drifting even after ball settles (realistic)
-    if (Math.abs(wheelAngularVel) > 0.01) {
+    // Wheel always drifts with friction (all phases except idle when stationary)
+    if (!dragging && Math.abs(wheelAngularVel) > 0.01) {
       wheelAngle      += wheelAngularVel * dt;
       wheelAngularVel *= Math.pow(WHEEL_FRICTION, dt * 60);
-    } else {
+    } else if (!dragging) {
       wheelAngularVel = 0;
     }
 
-    if (phase === 'idle' || phase === 'done') return;
+    if (phase === 'idle' || phase === 'done' || phase === 'ready') return;
 
-    if (phase === 'spinning') {
+    // wheelCoasting: wheel spinning, waiting for ball flick. Just let wheel decelerate.
+    if (phase === 'wheelCoasting') {
+      // If wheel has nearly stopped without ball flick, go back to ready
+      if (Math.abs(wheelAngularVel) < 0.3) {
+        phase = 'ready';
+        wheelAngularVel = 0;
+      }
+      return;
+    }
+
+    if (phase === 'ballLaunched') {
       ballAngle      += ballAngularVel * dt;
       ballAngularVel *= Math.pow(BALL_FRICTION, dt * 60);
 
@@ -346,7 +506,14 @@
 
     _drawWheel(cx, cy, r);
     _drawPointer(cx, cy, r);
-    if (phase !== 'idle') _drawBall(cx, cy);
+    if (phase === 'wheelCoasting') {
+      // Show ball sitting at top of rim, pulsing to prompt user to flick it
+      ballAngle = -HALF_PI;
+      ballRadius = ballOrbitRadius;
+      _drawBall(cx, cy);
+    } else if (phase === 'ballLaunched' || phase === 'settling' || phase === 'done') {
+      _drawBall(cx, cy);
+    }
 
     ctx.restore();
   }
@@ -506,6 +673,11 @@
   // ---------------------------------------------------------------------------
   // Expose
   // ---------------------------------------------------------------------------
-  global.BobaWheel = { init, setSegments, spin, isSpinning, render, setTickCallback, enableSwipe };
+  global.BobaWheel = {
+    init, setSegments, setReady, spin, launchBall,
+    isSpinning, isReady, getPhase, render,
+    setTickCallback, enableSwipe,
+    setWheelFlickCallback, setBallFlickCallback,
+  };
 
 }(window));
