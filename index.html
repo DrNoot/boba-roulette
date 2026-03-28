@@ -1,0 +1,1656 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+  <meta name="theme-color" content="#0d1117" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="Boba Roulette" />
+  <meta name="description" content="Pick a boba spot before volleyball — let fate decide." />
+  <link rel="manifest" href="manifest.json" />
+  <title>Boba Roulette</title>
+
+  <style>
+    /* ============================================================
+       RESET & BASE
+    ============================================================ */
+    *, *::before, *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg:           #0d1117;
+      --surface:      #161b22;
+      --surface-2:    #21262d;
+      --surface-3:    #30363d;
+      --border:       #30363d;
+      --border-light: #3d444d;
+      --text:         #e6edf3;
+      --text-muted:   #7d8590;
+      --text-dim:     #484f58;
+
+      /* accent */
+      --accent:       #f78166;
+      --accent-glow:  rgba(247, 129, 102, 0.25);
+
+      /* boba chip palette — warm, cycling */
+      --chip-0:  #f97316; /* orange */
+      --chip-1:  #ec4899; /* pink */
+      --chip-2:  #a855f7; /* purple */
+      --chip-3:  #14b8a6; /* teal */
+      --chip-4:  #f59e0b; /* amber */
+      --chip-5:  #ef4444; /* red */
+      --chip-6:  #8b5cf6; /* violet */
+      --chip-7:  #06b6d4; /* cyan */
+      --chip-8:  #10b981; /* emerald */
+      --chip-9:  #f43f5e; /* rose */
+
+      --radius-sm:   8px;
+      --radius-md:   12px;
+      --radius-lg:   20px;
+      --radius-pill: 999px;
+
+      --transition: 220ms cubic-bezier(0.4, 0, 0.2, 1);
+      --shadow-sm:  0 1px 3px rgba(0,0,0,0.4);
+      --shadow-md:  0 4px 16px rgba(0,0,0,0.5);
+      --shadow-lg:  0 8px 32px rgba(0,0,0,0.6);
+    }
+
+    html, body {
+      height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      font-size: 16px;
+      line-height: 1.5;
+      -webkit-font-smoothing: antialiased;
+    }
+
+    /* ============================================================
+       APP SHELL
+    ============================================================ */
+    #app {
+      width: 100%;
+      max-width: 480px;
+      min-height: 100dvh;
+      margin: 0 auto;
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* ============================================================
+       VIEWS — show/hide system
+    ============================================================ */
+    .view {
+      display: none;
+      flex-direction: column;
+      min-height: 100dvh;
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+      animation: fadeIn 240ms ease both;
+    }
+
+    .view.active {
+      display: flex;
+    }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(10px); }
+      to   { opacity: 1; transform: translateY(0); }
+    }
+
+    @keyframes slideInRight {
+      from { opacity: 0; transform: translateX(32px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    @keyframes slideInLeft {
+      from { opacity: 0; transform: translateX(-32px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    .view.slide-right { animation: slideInRight 260ms cubic-bezier(0.4,0,0.2,1) both; }
+    .view.slide-left  { animation: slideInLeft  260ms cubic-bezier(0.4,0,0.2,1) both; }
+
+    /* ============================================================
+       TOP BAR
+    ============================================================ */
+    .top-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px 10px;
+      position: sticky;
+      top: 0;
+      z-index: 10;
+      background: linear-gradient(to bottom, var(--bg) 80%, transparent);
+    }
+
+    .top-bar-title {
+      font-size: 1.1rem;
+      font-weight: 700;
+      letter-spacing: -0.01em;
+    }
+
+    .top-bar-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .icon-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: var(--radius-pill);
+      background: var(--surface-2);
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition), transform 80ms;
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+
+    .icon-btn:active { transform: scale(0.93); }
+    .icon-btn:hover  { background: var(--surface-3); color: var(--text); }
+
+    .icon-btn svg { width: 20px; height: 20px; fill: currentColor; }
+
+    .back-btn {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 500;
+      cursor: pointer;
+      padding: 8px 4px;
+      min-width: 44px;
+      min-height: 44px;
+      -webkit-tap-highlight-color: transparent;
+      transition: color var(--transition);
+    }
+
+    .back-btn:hover { color: var(--text); }
+    .back-btn svg   { width: 18px; height: 18px; fill: currentColor; }
+
+    /* ============================================================
+       TYPOGRAPHY HELPERS
+    ============================================================ */
+    .section-label {
+      font-size: 0.72rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      margin-bottom: 10px;
+    }
+
+    /* ============================================================
+       CARDS / SECTIONS
+    ============================================================ */
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-lg);
+      padding: 16px;
+      margin: 0 16px 12px;
+    }
+
+    /* ============================================================
+       FORM CONTROLS
+    ============================================================ */
+    .form-row {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 14px;
+    }
+
+    .form-row:last-child { margin-bottom: 0; }
+
+    .form-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text-muted);
+    }
+
+    .select-wrapper {
+      position: relative;
+    }
+
+    .select-wrapper::after {
+      content: "";
+      position: absolute;
+      right: 14px;
+      top: 50%;
+      transform: translateY(-50%);
+      width: 0;
+      height: 0;
+      border-left: 5px solid transparent;
+      border-right: 5px solid transparent;
+      border-top: 6px solid var(--text-muted);
+      pointer-events: none;
+    }
+
+    select {
+      width: 100%;
+      appearance: none;
+      background: var(--surface-2);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-md);
+      color: var(--text);
+      font-size: 0.95rem;
+      font-family: inherit;
+      padding: 12px 40px 12px 14px;
+      cursor: pointer;
+      transition: border-color var(--transition), background var(--transition);
+      min-height: 44px;
+    }
+
+    select:focus {
+      outline: none;
+      border-color: var(--accent);
+      background: var(--surface-3);
+    }
+
+    /* ============================================================
+       TOGGLE (carpool)
+    ============================================================ */
+    .toggle-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 44px;
+    }
+
+    .toggle-info {
+      flex: 1;
+    }
+
+    .toggle-info .label {
+      font-size: 0.9rem;
+      font-weight: 600;
+      color: var(--text);
+    }
+
+    .toggle-info .sublabel {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    /* 3-state carpool toggle: cycle through 0/1/2 */
+    .carpool-btn {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--surface-2);
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-pill);
+      padding: 8px 16px;
+      cursor: pointer;
+      min-height: 44px;
+      white-space: nowrap;
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: var(--text);
+      transition: background var(--transition), border-color var(--transition), color var(--transition);
+      -webkit-tap-highlight-color: transparent;
+      flex-shrink: 0;
+    }
+
+    .carpool-btn:active { transform: scale(0.96); }
+
+    .carpool-btn[data-state="0"] { color: var(--text-muted); }
+    .carpool-btn[data-state="1"] { background: rgba(20, 184, 166, 0.15); border-color: #14b8a6; color: #14b8a6; }
+    .carpool-btn[data-state="2"] { background: rgba(168, 85, 247, 0.15); border-color: #a855f7; color: #a855f7; }
+
+    .carpool-icon { font-size: 1rem; }
+
+    /* ============================================================
+       BOBA CHIPS GRID
+    ============================================================ */
+    .chips-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+    }
+
+    .chips-actions {
+      display: flex;
+      gap: 6px;
+    }
+
+    .text-btn {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: var(--accent);
+      background: none;
+      border: none;
+      cursor: pointer;
+      padding: 4px 8px;
+      border-radius: var(--radius-sm);
+      transition: background var(--transition);
+      -webkit-tap-highlight-color: transparent;
+      min-height: 32px;
+    }
+
+    .text-btn:hover { background: var(--accent-glow); }
+
+    .chips-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 8px;
+    }
+
+    .chip {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid transparent;
+      cursor: pointer;
+      font-size: 0.85rem;
+      font-weight: 600;
+      line-height: 1.3;
+      min-height: 44px;
+      transition: opacity var(--transition), transform 80ms, border-color var(--transition), background var(--transition);
+      -webkit-tap-highlight-color: transparent;
+      background: var(--surface-2);
+      color: var(--text-muted);
+      position: relative;
+      overflow: hidden;
+      user-select: none;
+    }
+
+    .chip:active { transform: scale(0.96); }
+
+    .chip-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+      transition: background var(--transition);
+    }
+
+    .chip-name { flex: 1; }
+
+    /* Selected state driven by data-color-index via CSS custom property */
+    .chip.selected {
+      color: var(--text);
+      opacity: 1;
+    }
+
+    /* Color index classes for chips */
+    .chip[data-ci="0"].selected { background: rgba(249,115,22,0.18); border-color: #f97316; }
+    .chip[data-ci="0"] .chip-dot { background: #f97316; }
+    .chip[data-ci="1"].selected { background: rgba(236,72,153,0.18); border-color: #ec4899; }
+    .chip[data-ci="1"] .chip-dot { background: #ec4899; }
+    .chip[data-ci="2"].selected { background: rgba(168,85,247,0.18); border-color: #a855f7; }
+    .chip[data-ci="2"] .chip-dot { background: #a855f7; }
+    .chip[data-ci="3"].selected { background: rgba(20,184,166,0.18); border-color: #14b8a6; }
+    .chip[data-ci="3"] .chip-dot { background: #14b8a6; }
+    .chip[data-ci="4"].selected { background: rgba(245,158,11,0.18); border-color: #f59e0b; }
+    .chip[data-ci="4"] .chip-dot { background: #f59e0b; }
+    .chip[data-ci="5"].selected { background: rgba(239,68,68,0.18); border-color: #ef4444; }
+    .chip[data-ci="5"] .chip-dot { background: #ef4444; }
+    .chip[data-ci="6"].selected { background: rgba(139,92,246,0.18); border-color: #8b5cf6; }
+    .chip[data-ci="6"] .chip-dot { background: #8b5cf6; }
+    .chip[data-ci="7"].selected { background: rgba(6,182,212,0.18); border-color: #06b6d4; }
+    .chip[data-ci="7"] .chip-dot { background: #06b6d4; }
+    .chip[data-ci="8"].selected { background: rgba(16,185,129,0.18); border-color: #10b981; }
+    .chip[data-ci="8"] .chip-dot { background: #10b981; }
+    .chip[data-ci="9"].selected { background: rgba(244,63,94,0.18); border-color: #f43f5e; }
+    .chip[data-ci="9"] .chip-dot { background: #f43f5e; }
+
+    .chip:not(.selected) { opacity: 0.45; }
+    .chip:not(.selected) .chip-dot { background: var(--text-dim); }
+
+    /* ============================================================
+       SPIN BUTTON
+    ============================================================ */
+    .spin-area {
+      padding: 16px 16px 24px;
+      margin-top: auto;
+    }
+
+    .spin-btn {
+      width: 100%;
+      min-height: 60px;
+      border-radius: var(--radius-pill);
+      border: none;
+      background: linear-gradient(135deg, #f97316 0%, #ec4899 50%, #a855f7 100%);
+      color: #fff;
+      font-size: 1.25rem;
+      font-weight: 800;
+      letter-spacing: 0.06em;
+      cursor: pointer;
+      transition: transform 120ms, box-shadow 120ms, filter 120ms;
+      box-shadow: 0 4px 24px rgba(247,99,102,0.45);
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .spin-btn::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(255,255,255,0.15) 0%, transparent 60%);
+      border-radius: inherit;
+    }
+
+    .spin-btn:active {
+      transform: scale(0.97);
+      box-shadow: 0 2px 12px rgba(247,99,102,0.35);
+    }
+
+    .spin-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+      transform: none;
+    }
+
+    .spin-btn-inner {
+      position: relative;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+
+    /* ============================================================
+       VIEW: MAIN SCREEN HEADER
+    ============================================================ */
+    .main-header {
+      padding: 20px 16px 8px;
+      text-align: center;
+    }
+
+    .main-title {
+      font-size: 2rem;
+      font-weight: 900;
+      letter-spacing: -0.03em;
+      background: linear-gradient(135deg, #f97316, #ec4899, #a855f7);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+      line-height: 1.1;
+    }
+
+    .main-subtitle {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      margin-top: 6px;
+    }
+
+    /* ============================================================
+       VIEW: WHEEL SCREEN
+    ============================================================ */
+    #view-wheel {
+      background: var(--bg);
+    }
+
+    .wheel-container {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 16px;
+      gap: 20px;
+      position: relative;
+    }
+
+    #wheel-canvas {
+      display: block;
+      width: 100%;
+      max-width: 340px;
+      height: auto;
+      aspect-ratio: 1;
+      border-radius: 50%;
+      box-shadow: 0 0 60px rgba(247,99,102,0.2), 0 8px 32px rgba(0,0,0,0.6);
+    }
+
+    /* Wheel pointer / pin */
+    .wheel-pointer {
+      position: absolute;
+      top: calc(50% - 170px - 22px); /* center minus half canvas minus pointer height */
+      left: 50%;
+      transform: translateX(-50%);
+      width: 0;
+      height: 0;
+      border-left: 10px solid transparent;
+      border-right: 10px solid transparent;
+      border-top: 24px solid var(--accent);
+      filter: drop-shadow(0 2px 6px rgba(247,129,102,0.6));
+      z-index: 5;
+    }
+
+    /* Result overlay — shown after spin */
+    .result-overlay {
+      display: none;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      gap: 6px;
+      padding: 20px 24px;
+      background: linear-gradient(135deg, rgba(249,115,22,0.12), rgba(168,85,247,0.12));
+      border: 1px solid var(--border-light);
+      border-radius: var(--radius-lg);
+      width: 100%;
+      max-width: 340px;
+      backdrop-filter: blur(8px);
+      animation: fadeIn 300ms ease both;
+    }
+
+    .result-overlay.visible { display: flex; }
+
+    .result-emoji { font-size: 2.2rem; }
+
+    .result-place {
+      font-size: 1.5rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #f97316, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .result-detour {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-weight: 600;
+    }
+
+    .result-vetoed {
+      font-size: 0.78rem;
+      color: #ef4444;
+      font-weight: 600;
+      display: none;
+    }
+
+    /* Wheel action buttons */
+    .wheel-actions {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      width: 100%;
+      max-width: 340px;
+      padding: 0 16px 24px;
+    }
+
+    .btn-primary {
+      width: 100%;
+      min-height: 52px;
+      border-radius: var(--radius-pill);
+      border: none;
+      background: linear-gradient(135deg, #f97316, #ec4899);
+      color: #fff;
+      font-size: 1rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: transform 100ms, box-shadow 100ms;
+      box-shadow: 0 4px 18px rgba(247,99,102,0.4);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-primary:active { transform: scale(0.97); }
+    .btn-primary:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-secondary {
+      width: 100%;
+      min-height: 48px;
+      border-radius: var(--radius-pill);
+      border: 1.5px solid var(--border-light);
+      background: var(--surface);
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background var(--transition), color var(--transition), transform 100ms;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .btn-secondary:active  { transform: scale(0.97); }
+    .btn-secondary:hover   { background: var(--surface-2); color: var(--text); }
+
+    .btn-ghost {
+      width: 100%;
+      min-height: 44px;
+      border-radius: var(--radius-pill);
+      border: none;
+      background: none;
+      color: var(--text-dim);
+      font-size: 0.85rem;
+      font-weight: 600;
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+      transition: color var(--transition);
+    }
+
+    .btn-ghost:hover { color: var(--text-muted); }
+
+    /* Row of two buttons */
+    .btn-row {
+      display: flex;
+      gap: 10px;
+    }
+
+    .btn-row > * { flex: 1; }
+
+    /* ============================================================
+       VIEW: SETTINGS SCREEN
+    ============================================================ */
+    .settings-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding-bottom: 32px;
+    }
+
+    .settings-section-title {
+      font-size: 0.72rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-dim);
+      padding: 16px 16px 8px;
+    }
+
+    /* Preference sliders */
+    .pref-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .pref-item {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .pref-item:last-child { border-bottom: none; }
+
+    .pref-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .pref-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .pref-dot {
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .pref-value {
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: var(--text-muted);
+      min-width: 32px;
+      text-align: right;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      height: 4px;
+      appearance: none;
+      background: var(--surface-3);
+      border-radius: var(--radius-pill);
+      outline: none;
+      cursor: pointer;
+    }
+
+    input[type="range"]::-webkit-slider-thumb {
+      appearance: none;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 3px solid var(--bg);
+      box-shadow: 0 2px 8px rgba(247,129,102,0.5);
+      transition: transform 100ms;
+    }
+
+    input[type="range"]::-webkit-slider-thumb:active { transform: scale(1.2); }
+
+    input[type="range"]::-moz-range-thumb {
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: var(--accent);
+      cursor: pointer;
+      border: 3px solid var(--bg);
+      box-shadow: 0 2px 8px rgba(247,129,102,0.5);
+    }
+
+    /* Toggle switch */
+    .switch-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 14px 16px;
+      min-height: 56px;
+      border-bottom: 1px solid var(--border);
+      cursor: pointer;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .switch-row:last-child { border-bottom: none; }
+
+    .switch-info .label {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .switch-info .sub {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+    }
+
+    .switch {
+      position: relative;
+      width: 50px;
+      height: 28px;
+      flex-shrink: 0;
+    }
+
+    .switch input { opacity: 0; width: 0; height: 0; position: absolute; }
+
+    .switch-track {
+      position: absolute;
+      inset: 0;
+      background: var(--surface-3);
+      border-radius: var(--radius-pill);
+      transition: background 200ms;
+      cursor: pointer;
+    }
+
+    .switch input:checked + .switch-track { background: var(--accent); }
+
+    .switch-track::before {
+      content: "";
+      position: absolute;
+      left: 3px;
+      top: 3px;
+      width: 22px;
+      height: 22px;
+      border-radius: 50%;
+      background: #fff;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.3);
+      transition: transform 200ms cubic-bezier(0.4,0,0.2,1);
+    }
+
+    .switch input:checked + .switch-track::before { transform: translateX(22px); }
+
+    /* Max detour slider (settings) */
+    .slider-row {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    .slider-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .slider-header .label {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .slider-header .value {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: var(--accent);
+    }
+
+    /* Veto section */
+    .veto-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .veto-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+      min-height: 56px;
+    }
+
+    .veto-item:last-child { border-bottom: none; }
+
+    .veto-name {
+      font-size: 0.9rem;
+      font-weight: 600;
+    }
+
+    .veto-controls {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .veto-count {
+      font-size: 1rem;
+      font-weight: 800;
+      min-width: 28px;
+      text-align: center;
+      color: var(--text);
+    }
+
+    .veto-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      border: 1.5px solid var(--border-light);
+      background: var(--surface-2);
+      color: var(--text);
+      font-size: 1.1rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background var(--transition);
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .veto-btn:hover { background: var(--surface-3); }
+
+    /* ============================================================
+       VIEW: HISTORY SCREEN
+    ============================================================ */
+    .history-scroll {
+      flex: 1;
+      overflow-y: auto;
+      padding-bottom: 32px;
+    }
+
+    /* Stats strip */
+    .stats-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 10px;
+      padding: 12px 16px 4px;
+    }
+
+    .stat-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 12px 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      text-align: center;
+    }
+
+    .stat-value {
+      font-size: 1.3rem;
+      font-weight: 900;
+      letter-spacing: -0.02em;
+      background: linear-gradient(135deg, #f97316, #ec4899);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .stat-label {
+      font-size: 0.68rem;
+      font-weight: 600;
+      color: var(--text-dim);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      line-height: 1.3;
+    }
+
+    /* Visit list */
+    .visit-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+      padding: 8px 16px;
+    }
+
+    .visit-item {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      padding: 14px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      transition: background var(--transition), border-color var(--transition);
+      -webkit-tap-highlight-color: transparent;
+      position: relative;
+    }
+
+    .visit-item:hover   { background: var(--surface-2); border-color: var(--border-light); }
+    .visit-item:active  { background: var(--surface-3); }
+
+    .visit-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 8px;
+    }
+
+    .visit-place {
+      font-size: 0.95rem;
+      font-weight: 700;
+      line-height: 1.3;
+    }
+
+    .visit-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 3px;
+    }
+
+    .visit-date {
+      font-size: 0.75rem;
+      color: var(--text-muted);
+      white-space: nowrap;
+    }
+
+    .visit-badge {
+      font-size: 0.68rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: var(--radius-pill);
+      background: rgba(249,115,22,0.15);
+      color: #f97316;
+      white-space: nowrap;
+    }
+
+    .visit-details {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 8px;
+    }
+
+    .visit-tag {
+      font-size: 0.72rem;
+      font-weight: 600;
+      padding: 3px 8px;
+      border-radius: var(--radius-pill);
+      background: var(--surface-2);
+      color: var(--text-muted);
+      border: 1px solid var(--border);
+    }
+
+    /* Delete button (shown on tap) */
+    .visit-delete {
+      display: none;
+      position: absolute;
+      top: 10px;
+      right: 10px;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: rgba(239,68,68,0.15);
+      border: 1px solid rgba(239,68,68,0.4);
+      color: #ef4444;
+      font-size: 0.9rem;
+      cursor: pointer;
+      align-items: center;
+      justify-content: center;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    .visit-item.expanded .visit-delete { display: flex; }
+
+    .empty-history {
+      text-align: center;
+      padding: 48px 24px;
+      color: var(--text-dim);
+    }
+
+    .empty-history .emoji { font-size: 3rem; margin-bottom: 12px; }
+    .empty-history .msg   { font-size: 0.9rem; }
+
+    /* ============================================================
+       TOAST / SNACKBAR
+    ============================================================ */
+    #toast {
+      position: fixed;
+      bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+      left: 50%;
+      transform: translateX(-50%) translateY(16px);
+      background: var(--surface-3);
+      color: var(--text);
+      font-size: 0.85rem;
+      font-weight: 600;
+      padding: 10px 20px;
+      border-radius: var(--radius-pill);
+      box-shadow: var(--shadow-lg);
+      border: 1px solid var(--border-light);
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 220ms, transform 220ms cubic-bezier(0.4,0,0.2,1);
+      white-space: nowrap;
+      z-index: 1000;
+    }
+
+    #toast.show {
+      opacity: 1;
+      transform: translateX(-50%) translateY(0);
+    }
+
+    /* ============================================================
+       CONFETTI CANVAS (full screen overlay)
+    ============================================================ */
+    #confetti-canvas {
+      position: fixed;
+      inset: 0;
+      pointer-events: none;
+      z-index: 999;
+      width: 100%;
+      height: 100%;
+    }
+
+    /* ============================================================
+       SCROLLBAR STYLING
+    ============================================================ */
+    ::-webkit-scrollbar { width: 4px; }
+    ::-webkit-scrollbar-track { background: transparent; }
+    ::-webkit-scrollbar-thumb { background: var(--surface-3); border-radius: 4px; }
+
+    /* ============================================================
+       UTILITY
+    ============================================================ */
+    .visually-hidden {
+      position: absolute;
+      width: 1px; height: 1px;
+      overflow: hidden;
+      clip: rect(0,0,0,0);
+      white-space: nowrap;
+    }
+
+    .divider {
+      height: 1px;
+      background: var(--border);
+      margin: 4px 16px;
+    }
+
+    /* ============================================================
+       PULSE ANIMATION (spin button idle)
+    ============================================================ */
+    @keyframes pulse-glow {
+      0%, 100% { box-shadow: 0 4px 24px rgba(247,99,102,0.45); }
+      50%       { box-shadow: 0 4px 40px rgba(247,99,102,0.75); }
+    }
+
+    .spin-btn:not(:disabled) {
+      animation: pulse-glow 3s ease-in-out infinite;
+    }
+
+    /* ============================================================
+       SPINNING INDICATOR on wheel
+    ============================================================ */
+    .spinning-label {
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      animation: blink 1s ease-in-out infinite;
+      display: none;
+    }
+
+    .spinning-label.visible { display: block; }
+
+    @keyframes blink {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- ============================================================
+       VIEW 1: MAIN SCREEN
+  ============================================================ -->
+  <section id="view-main" class="view active" role="main" aria-label="Main screen">
+
+    <div class="top-bar">
+      <div><!-- spacer --></div>
+      <div class="top-bar-actions">
+        <!-- History -->
+        <button class="icon-btn" id="btn-history" aria-label="History">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M13 3a9 9 0 0 0-9 9H1l3.89 3.89.07.14L9 12H6c0-3.87 3.13-7 7-7s7 3.13 7 7-3.13 7-7 7c-1.93 0-3.68-.79-4.94-2.06L6.62 18.37A8.945 8.945 0 0 0 13 21a9 9 0 0 0 0-18zm-1 5v5l4.28 2.54.72-1.21-3.5-2.08V8H12z"/>
+          </svg>
+        </button>
+        <!-- Settings -->
+        <button class="icon-btn" id="btn-settings" aria-label="Settings">
+          <svg viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path d="M19.14 12.94c.04-.3.06-.61.06-.94s-.02-.64-.07-.94l2.03-1.58a.49.49 0 0 0 .12-.61l-1.92-3.32a.49.49 0 0 0-.59-.22l-2.39.96a7.05 7.05 0 0 0-1.62-.94l-.36-2.54a.484.484 0 0 0-.48-.41h-3.84c-.24 0-.43.17-.47.41l-.36 2.54c-.59.24-1.13.57-1.62.94l-2.39-.96a.48.48 0 0 0-.59.22L2.74 8.87a.47.47 0 0 0 .12.61l2.03 1.58c-.05.3-.09.63-.09.94s.02.64.07.94l-2.03 1.58a.49.49 0 0 0-.12.61l1.92 3.32c.12.22.37.29.59.22l2.39-.96c.5.38 1.03.7 1.62.94l.36 2.54c.05.24.24.41.48.41h3.84c.24 0 .44-.17.47-.41l.36-2.54c.59-.24 1.13-.56 1.62-.94l2.39.96c.22.08.47 0 .59-.22l1.92-3.32a.47.47 0 0 0-.12-.61l-2.01-1.58zM12 15.6c-1.98 0-3.6-1.62-3.6-3.6s1.62-3.6 3.6-3.6 3.6 1.62 3.6 3.6-1.62 3.6-3.6 3.6z"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+
+    <div class="main-header">
+      <h1 class="main-title">Boba Roulette</h1>
+      <p class="main-subtitle">Let fate pick the drip before the spike</p>
+    </div>
+
+    <!-- Route Setup -->
+    <div class="card">
+      <div class="section-label">Route Setup</div>
+
+      <div class="form-row">
+        <label class="form-label" for="select-start">Starting From</label>
+        <div class="select-wrapper">
+          <select id="select-start">
+            <option value="daniels">Daniel's Place</option>
+            <option value="friends">Friend's Place</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row">
+        <label class="form-label" for="select-venue">Playing At</label>
+        <div class="select-wrapper">
+          <select id="select-venue">
+            <option value="aaniin">Aaniin Community Centre</option>
+            <option value="vellore">Vellore Village CC</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="form-row" style="margin-bottom:0">
+        <div class="toggle-row">
+          <div class="toggle-info">
+            <div class="label">Carpool</div>
+            <div class="sublabel" id="carpool-sublabel">Tap to set carpool mode</div>
+          </div>
+          <button class="carpool-btn" id="btn-carpool" data-state="0" aria-label="Toggle carpool mode">
+            <span class="carpool-icon" id="carpool-icon">🚗</span>
+            <span id="carpool-label">No carpool</span>
+          </button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Boba Places -->
+    <div class="card">
+      <div class="chips-header">
+        <div class="section-label" style="margin-bottom:0">Where we might go</div>
+        <div class="chips-actions">
+          <button class="text-btn" id="btn-select-all">Select All</button>
+          <button class="text-btn" id="btn-clear-all">Clear</button>
+        </div>
+      </div>
+
+      <div class="chips-grid" id="chips-grid">
+        <!-- Chips injected by JS from data.js; static fallback below -->
+
+        <button class="chip selected" data-ci="0" data-place="Gong Cha" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Gong Cha</span>
+        </button>
+
+        <button class="chip selected" data-ci="1" data-place="Coco Fresh" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Coco Fresh</span>
+        </button>
+
+        <button class="chip selected" data-ci="2" data-place="Tiger Sugar" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Tiger Sugar</span>
+        </button>
+
+        <button class="chip selected" data-ci="3" data-place="Chatime" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Chatime</span>
+        </button>
+
+        <button class="chip selected" data-ci="4" data-place="Happy Lemon" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Happy Lemon</span>
+        </button>
+
+        <button class="chip selected" data-ci="5" data-place="Presotea" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Presotea</span>
+        </button>
+
+        <button class="chip selected" data-ci="6" data-place="Yi Fang" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Yi Fang</span>
+        </button>
+
+        <button class="chip selected" data-ci="7" data-place="The Alley" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">The Alley</span>
+        </button>
+
+        <button class="chip selected" data-ci="8" data-place="Sharetea" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Sharetea</span>
+        </button>
+
+        <button class="chip selected" data-ci="9" data-place="Ding Tea" aria-pressed="true">
+          <span class="chip-dot"></span>
+          <span class="chip-name">Ding Tea</span>
+        </button>
+
+      </div>
+    </div>
+
+    <!-- Spin Button -->
+    <div class="spin-area">
+      <button class="spin-btn" id="btn-spin" aria-label="Spin the wheel">
+        <div class="spin-btn-inner">
+          <span>🧋</span>
+          <span>SPIN</span>
+          <span>🎲</span>
+        </div>
+      </button>
+    </div>
+
+  </section><!-- /view-main -->
+
+
+  <!-- ============================================================
+       VIEW 2: WHEEL SCREEN
+  ============================================================ -->
+  <section id="view-wheel" class="view" role="main" aria-label="Wheel screen">
+
+    <div class="top-bar">
+      <button class="back-btn" id="btn-wheel-back" aria-label="Back to main">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        Back
+      </button>
+      <div class="top-bar-title">Spin</div>
+      <div style="width:44px"></div><!-- balance -->
+    </div>
+
+    <div class="wheel-container">
+      <div class="wheel-pointer" id="wheel-pointer" aria-hidden="true"></div>
+
+      <canvas id="wheel-canvas" width="340" height="340" role="img" aria-label="Roulette wheel"></canvas>
+
+      <div class="spinning-label" id="spinning-label">Spinning...</div>
+
+      <div class="result-overlay" id="result-overlay" role="alert" aria-live="polite">
+        <div class="result-emoji" id="result-emoji">🧋</div>
+        <div class="result-place" id="result-place">Gong Cha</div>
+        <div class="result-detour" id="result-detour">+8 min detour</div>
+        <div class="result-vetoed" id="result-vetoed">Vetoed by someone</div>
+      </div>
+    </div>
+
+    <div class="wheel-actions">
+      <div class="btn-row" id="wheel-post-spin" style="display:none">
+        <button class="btn-primary" id="btn-log-boba">Log This Boba</button>
+        <button class="btn-secondary" id="btn-just-testing">Just Testing</button>
+      </div>
+      <button class="btn-secondary" id="btn-spin-again">Spin Again</button>
+    </div>
+
+  </section><!-- /view-wheel -->
+
+
+  <!-- ============================================================
+       VIEW 3: SETTINGS SCREEN
+  ============================================================ -->
+  <section id="view-settings" class="view" role="main" aria-label="Settings">
+
+    <div class="top-bar">
+      <button class="back-btn" id="btn-settings-back" aria-label="Back">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        Back
+      </button>
+      <div class="top-bar-title">Settings</div>
+      <div style="width:44px"></div>
+    </div>
+
+    <div class="settings-scroll">
+
+      <!-- Preferences (weights) -->
+      <div class="settings-section-title">Place Weights</div>
+      <div class="card" style="padding:0; overflow:hidden">
+        <div class="pref-list" id="pref-list">
+          <!-- Injected by JS; static fallback -->
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#f97316"></span>
+                Gong Cha
+              </div>
+              <div class="pref-value" id="pref-val-0">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="0"
+                   aria-label="Weight for Gong Cha" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#ec4899"></span>
+                Coco Fresh
+              </div>
+              <div class="pref-value" id="pref-val-1">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="1"
+                   aria-label="Weight for Coco Fresh" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#a855f7"></span>
+                Tiger Sugar
+              </div>
+              <div class="pref-value" id="pref-val-2">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="2"
+                   aria-label="Weight for Tiger Sugar" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#14b8a6"></span>
+                Chatime
+              </div>
+              <div class="pref-value" id="pref-val-3">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="3"
+                   aria-label="Weight for Chatime" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#f59e0b"></span>
+                Happy Lemon
+              </div>
+              <div class="pref-value" id="pref-val-4">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="4"
+                   aria-label="Weight for Happy Lemon" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#ef4444"></span>
+                Presotea
+              </div>
+              <div class="pref-value" id="pref-val-5">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="5"
+                   aria-label="Weight for Presotea" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#8b5cf6"></span>
+                Yi Fang
+              </div>
+              <div class="pref-value" id="pref-val-6">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="6"
+                   aria-label="Weight for Yi Fang" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#06b6d4"></span>
+                The Alley
+              </div>
+              <div class="pref-value" id="pref-val-7">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="7"
+                   aria-label="Weight for The Alley" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#10b981"></span>
+                Sharetea
+              </div>
+              <div class="pref-value" id="pref-val-8">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="8"
+                   aria-label="Weight for Sharetea" />
+          </div>
+
+          <div class="pref-item">
+            <div class="pref-row">
+              <div class="pref-name">
+                <span class="pref-dot" style="background:#f43f5e"></span>
+                Ding Tea
+              </div>
+              <div class="pref-value" id="pref-val-9">50</div>
+            </div>
+            <input type="range" min="0" max="100" value="50" data-pref-index="9"
+                   aria-label="Weight for Ding Tea" />
+          </div>
+
+        </div>
+      </div>
+
+      <!-- Route & Detour -->
+      <div class="settings-section-title">Route Options</div>
+      <div class="card" style="padding:0; overflow:hidden">
+
+        <label class="switch-row" for="toggle-weight-route">
+          <div class="switch-info">
+            <div class="label">Weight by route</div>
+            <div class="sub">Boost places that are on the way</div>
+          </div>
+          <div class="switch">
+            <input type="checkbox" id="toggle-weight-route" />
+            <div class="switch-track"></div>
+          </div>
+        </label>
+
+        <div class="slider-row">
+          <div class="slider-header">
+            <div class="label">Max detour time</div>
+            <div class="value" id="detour-value">15 min</div>
+          </div>
+          <input type="range" id="slider-detour" min="5" max="30" value="15" step="1"
+                 aria-label="Maximum detour time in minutes" />
+        </div>
+
+      </div>
+
+      <!-- Extras -->
+      <div class="settings-section-title">Experience</div>
+      <div class="card" style="padding:0; overflow:hidden">
+
+        <label class="switch-row" for="toggle-sound">
+          <div class="switch-info">
+            <div class="label">Sound effects</div>
+            <div class="sub">Tick and win sounds</div>
+          </div>
+          <div class="switch">
+            <input type="checkbox" id="toggle-sound" checked />
+            <div class="switch-track"></div>
+          </div>
+        </label>
+
+        <label class="switch-row" for="toggle-confetti">
+          <div class="switch-info">
+            <div class="label">Confetti</div>
+            <div class="sub">Celebrate the pick</div>
+          </div>
+          <div class="switch">
+            <input type="checkbox" id="toggle-confetti" checked />
+            <div class="switch-track"></div>
+          </div>
+        </label>
+
+      </div>
+
+      <!-- Veto system -->
+      <div class="settings-section-title">Veto System</div>
+      <div class="card" style="padding:0; overflow:hidden">
+
+        <div class="veto-list" id="veto-list">
+
+          <div class="veto-item">
+            <div class="veto-name">Daniel</div>
+            <div class="veto-controls">
+              <button class="veto-btn" data-person="Daniel" data-action="dec" aria-label="Remove veto for Daniel">−</button>
+              <div class="veto-count" id="veto-count-daniel">2</div>
+              <button class="veto-btn" data-person="Daniel" data-action="inc" aria-label="Add veto for Daniel">+</button>
+            </div>
+          </div>
+
+          <div class="veto-item">
+            <div class="veto-name">Alex</div>
+            <div class="veto-controls">
+              <button class="veto-btn" data-person="Alex" data-action="dec" aria-label="Remove veto for Alex">−</button>
+              <div class="veto-count" id="veto-count-alex">2</div>
+              <button class="veto-btn" data-person="Alex" data-action="inc" aria-label="Add veto for Alex">+</button>
+            </div>
+          </div>
+
+          <div class="veto-item">
+            <div class="veto-name">Sam</div>
+            <div class="veto-controls">
+              <button class="veto-btn" data-person="Sam" data-action="dec" aria-label="Remove veto for Sam">−</button>
+              <div class="veto-count" id="veto-count-sam">2</div>
+              <button class="veto-btn" data-person="Sam" data-action="inc" aria-label="Add veto for Sam">+</button>
+            </div>
+          </div>
+
+          <div class="veto-item">
+            <div class="veto-name">Jordan</div>
+            <div class="veto-controls">
+              <button class="veto-btn" data-person="Jordan" data-action="dec" aria-label="Remove veto for Jordan">−</button>
+              <div class="veto-count" id="veto-count-jordan">2</div>
+              <button class="veto-btn" data-person="Jordan" data-action="inc" aria-label="Add veto for Jordan">+</button>
+            </div>
+          </div>
+
+          <div class="veto-item" style="border-bottom:none">
+            <div class="veto-name">Riley</div>
+            <div class="veto-controls">
+              <button class="veto-btn" data-person="Riley" data-action="dec" aria-label="Remove veto for Riley">−</button>
+              <div class="veto-count" id="veto-count-riley">2</div>
+              <button class="veto-btn" data-person="Riley" data-action="inc" aria-label="Add veto for Riley">+</button>
+            </div>
+          </div>
+
+        </div>
+      </div>
+
+      <div style="height: 12px"></div>
+
+    </div><!-- /settings-scroll -->
+
+  </section><!-- /view-settings -->
+
+
+  <!-- ============================================================
+       VIEW 4: HISTORY SCREEN
+  ============================================================ -->
+  <section id="view-history" class="view" role="main" aria-label="History">
+
+    <div class="top-bar">
+      <button class="back-btn" id="btn-history-back" aria-label="Back">
+        <svg viewBox="0 0 24 24"><path d="M20 11H7.83l5.59-5.59L12 4l-8 8 8 8 1.41-1.41L7.83 13H20v-2z"/></svg>
+        Back
+      </button>
+      <div class="top-bar-title">History</div>
+      <div style="width:44px"></div>
+    </div>
+
+    <!-- Stats strip -->
+    <div class="stats-strip">
+      <div class="stat-card">
+        <div class="stat-value" id="stat-total">0</div>
+        <div class="stat-label">Total visits</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-fav" style="font-size:0.9rem">—</div>
+        <div class="stat-label">Most visited</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-value" id="stat-least" style="font-size:0.9rem">—</div>
+        <div class="stat-label">Least visited</div>
+      </div>
+    </div>
+
+    <div class="history-scroll">
+      <div class="visit-list" id="visit-list">
+
+        <!-- Empty state (shown by JS when list empty) -->
+        <div class="empty-history" id="empty-history">
+          <div class="emoji">🧋</div>
+          <div class="msg">No boba runs logged yet.<br>Hit Spin and go get some!</div>
+        </div>
+
+      </div>
+    </div>
+
+  </section><!-- /view-history -->
+
+
+  <!-- ============================================================
+       CONFETTI CANVAS (global overlay)
+  ============================================================ -->
+  <canvas id="confetti-canvas" aria-hidden="true"></canvas>
+
+  <!-- ============================================================
+       TOAST
+  ============================================================ -->
+  <div id="toast" role="status" aria-live="polite"></div>
+
+</div><!-- /app -->
+
+<!-- JS modules (order matters) -->
+<script src="js/data.js"></script>
+<script src="js/audio.js"></script>
+<script src="js/wheel.js"></script>
+<script src="js/confetti.js"></script>
+<script src="js/app.js"></script>
+
+</body>
+</html>

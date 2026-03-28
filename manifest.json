@@ -1,0 +1,10 @@
+{
+  "name": "Boba Roulette",
+  "short_name": "Boba",
+  "description": "Pick a boba spot before volleyball",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#0d1117",
+  "theme_color": "#0d1117",
+  "icons": []
+}
