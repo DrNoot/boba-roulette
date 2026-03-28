@@ -150,7 +150,7 @@
   function getDetourForPlace(place) {
     if (!window.BobaData || !window.BobaData.calcDetour) return null;
     try {
-      const result = window.BobaData.calcDetour(place.id, state.startKey, state.venueKey, state.carpoolState);
+      const result = window.BobaData.calcDetour(state.startKey, state.venueKey, place);
       return (result !== null && result !== undefined) ? Math.round(result) : null;
     } catch (e) {
       return null;
@@ -333,6 +333,58 @@
 
     window.BobaAudio.playCelebration();
     window.BobaConfetti.launch(120);
+
+    showRouteInfo(place);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Route info display
+  // ---------------------------------------------------------------------------
+  function showRouteInfo(place) {
+    const routeInfo = document.getElementById('route-info');
+    const leg1El    = document.getElementById('route-leg-1');
+    const leg2El    = document.getElementById('route-leg-2');
+    const totalEl   = document.getElementById('route-total');
+    if (!routeInfo || !leg1El || !leg2El || !totalEl) return;
+    if (!window.BobaData || !window.BobaData._haversineKm) {
+      routeInfo.style.display = 'none';
+      return;
+    }
+
+    const ROAD_FACTOR = 1.35;
+    const SPEED_KMH   = 40;
+
+    function travelMin(fromCoords, toCoords) {
+      const km = window.BobaData._haversineKm(
+        fromCoords.lat, fromCoords.lng,
+        toCoords.lat, toCoords.lng
+      );
+      return Math.round((km * ROAD_FACTOR / SPEED_KMH) * 60);
+    }
+
+    const starts  = window.BobaData.starts  || {};
+    const venues  = window.BobaData.venues  || {};
+    const startObj  = starts[state.startKey];
+    const venueObj  = venues[state.venueKey];
+    if (!startObj || !venueObj || !place.coords) {
+      routeInfo.style.display = 'none';
+      return;
+    }
+
+    const startName = startObj.label || startObj.name || state.startKey;
+    const venueName = venueObj.label || venueObj.name || state.venueKey;
+
+    const leg1Min = travelMin(startObj.coords, place.coords);
+    const leg2Min = travelMin(place.coords, venueObj.coords);
+    const totalMin = leg1Min + leg2Min;
+    const directMin = travelMin(startObj.coords, venueObj.coords);
+    const extraMin  = totalMin - directMin;
+
+    leg1El.innerHTML = `<span>${startName} &rarr; ${place.name}</span><span>${leg1Min} min</span>`;
+    leg2El.innerHTML = `<span>${place.name} &rarr; ${venueName}</span><span>${leg2Min} min</span>`;
+    totalEl.innerHTML = `<span>Total trip</span><span>${totalMin} min (+${Math.max(0, extraMin)} vs direct)</span>`;
+
+    routeInfo.style.display = '';
   }
 
   // ---------------------------------------------------------------------------

@@ -426,18 +426,23 @@
       width: 100%;
       min-height: 60px;
       border-radius: var(--radius-pill);
-      border: none;
-      background: linear-gradient(135deg, #f97316 0%, #ec4899 50%, #a855f7 100%);
+      border: 2px solid #c2570e;
+      background: #f97316;
       color: #fff;
       font-size: 1.25rem;
       font-weight: 800;
       letter-spacing: 0.06em;
       cursor: pointer;
       transition: transform 120ms, box-shadow 120ms, filter 120ms;
-      box-shadow: 0 4px 24px rgba(247,99,102,0.45);
+      box-shadow: 0 4px 16px rgba(249,115,22,0.35);
       -webkit-tap-highlight-color: transparent;
       position: relative;
       overflow: hidden;
+    }
+
+    .spin-btn:hover:not(:disabled) {
+      transform: scale(1.02);
+      box-shadow: 0 6px 20px rgba(249,115,22,0.45);
     }
 
     .spin-btn::before {
@@ -479,10 +484,7 @@
       font-size: 2rem;
       font-weight: 900;
       letter-spacing: -0.03em;
-      background: linear-gradient(135deg, #f97316, #ec4899, #a855f7);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: #ffd4a8;
       line-height: 1.1;
     }
 
@@ -560,10 +562,7 @@
       font-size: 1.5rem;
       font-weight: 900;
       letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #f97316, #ec4899);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: #fff;
     }
 
     .result-detour {
@@ -921,10 +920,7 @@
       font-size: 1.3rem;
       font-weight: 900;
       letter-spacing: -0.02em;
-      background: linear-gradient(135deg, #f97316, #ec4899);
-      -webkit-background-clip: text;
-      -webkit-text-fill-color: transparent;
-      background-clip: text;
+      color: #f97316;
     }
 
     .stat-label {
@@ -1083,6 +1079,38 @@
     }
 
     /* ============================================================
+       ROUTE INFO (post-spin)
+    ============================================================ */
+    .route-info {
+      width: 100%;
+      max-width: 340px;
+      padding: 12px 16px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-md);
+      margin-top: 8px;
+    }
+
+    .route-leg {
+      font-size: 0.82rem;
+      color: var(--text-muted);
+      padding: 4px 0;
+      display: flex;
+      justify-content: space-between;
+    }
+
+    .route-total {
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: var(--text);
+      padding-top: 8px;
+      margin-top: 8px;
+      border-top: 1px solid var(--border);
+      display: flex;
+      justify-content: space-between;
+    }
+
+    /* ============================================================
        SCROLLBAR STYLING
     ============================================================ */
     ::-webkit-scrollbar { width: 4px; }
@@ -1106,17 +1134,7 @@
       margin: 4px 16px;
     }
 
-    /* ============================================================
-       PULSE ANIMATION (spin button idle)
-    ============================================================ */
-    @keyframes pulse-glow {
-      0%, 100% { box-shadow: 0 4px 24px rgba(247,99,102,0.45); }
-      50%       { box-shadow: 0 4px 40px rgba(247,99,102,0.75); }
-    }
-
-    .spin-btn:not(:disabled) {
-      animation: pulse-glow 3s ease-in-out infinite;
-    }
+    /* Pulse animation removed — replaced with hover scale on .spin-btn */
 
     /* ============================================================
        SPINNING INDICATOR on wheel
@@ -1167,7 +1185,7 @@
 
     <div class="main-header">
       <h1 class="main-title">Boba Roulette</h1>
-      <p class="main-subtitle">Let fate pick the drip before the spike</p>
+      <p class="main-subtitle">Pre-volleyball boba picker</p>
     </div>
 
     <!-- Route Setup -->
@@ -1278,9 +1296,7 @@
     <div class="spin-area">
       <button class="spin-btn" id="btn-spin" aria-label="Spin the wheel">
         <div class="spin-btn-inner">
-          <span>🧋</span>
-          <span>SPIN</span>
-          <span>🎲</span>
+          <span>SPIN THE WHEEL</span>
         </div>
       </button>
     </div>
@@ -1314,6 +1330,14 @@
         <div class="result-place" id="result-place">Gong Cha</div>
         <div class="result-detour" id="result-detour">+8 min detour</div>
         <div class="result-vetoed" id="result-vetoed">Vetoed by someone</div>
+      </div>
+
+      <div class="route-info" id="route-info" style="display:none">
+        <div class="route-info-inner">
+          <div class="route-leg" id="route-leg-1"></div>
+          <div class="route-leg" id="route-leg-2"></div>
+          <div class="route-total" id="route-total"></div>
+        </div>
       </div>
     </div>
 
@@ -1493,7 +1517,7 @@
             <div class="label">Max detour time</div>
             <div class="value" id="detour-value">15 min</div>
           </div>
-          <input type="range" id="slider-detour" min="5" max="30" value="15" step="1"
+          <input type="range" id="slider-detour" min="5" max="60" value="15" step="5"
                  aria-label="Maximum detour time in minutes" />
         </div>
 

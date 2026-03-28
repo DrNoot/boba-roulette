@@ -78,6 +78,7 @@
   let ballTargetAngle = 0;    // final resting angle
   let ballTargetRadius = 0;   // final resting distance from centre
   let lastBallSegment = -1;   // for tick detection
+  let ballTotalRevs   = 0;    // fixed revolution count set at spin start
 
   // Callbacks
   let tickCallback = null;
@@ -162,9 +163,11 @@
     spinEndAngle = spinStartAngle + revolutions * TWO_PI + delta;
 
     // Ball starts on outer rim at the top (pointer position)
-    ballAngle       = -HALF_PI;
-    ballRadius      = ballOrbitRadius;
-    ballTargetAngle = rawTarget; // ball rests where the winner segment centre ends up
+    ballAngle        = -HALF_PI;
+    ballRadius       = ballOrbitRadius;
+    ballTotalRevs    = 6 + Math.random() * 3; // fixed for this spin
+    // Ball target: absolute position where the winning segment centre ends up
+    ballTargetAngle  = spinEndAngle + displayIdx * segArc + segArc * 0.5;
     ballTargetRadius = logicalSize * 0.35; // ~mid-segment radially
 
     lastBallSegment = -1;
@@ -251,20 +254,19 @@
       // Wheel rotation
       wheelAngle = spinStartAngle + (spinEndAngle - spinStartAngle) * ease;
 
-      // Ball orbits in OPPOSITE direction, decelerating
-      const ballProgress = easeOutQuint(t);
-      const totalBallRevs = 3 + (1 - t) * 4; // faster at start, slower at end
-      ballAngle = -HALF_PI - ballProgress * TWO_PI * totalBallRevs;
+      // Ball orbits in OPPOSITE direction, decelerating with fixed revolution count
+      ballAngle  = -HALF_PI - easeOutQuint(t) * TWO_PI * ballTotalRevs;
       ballRadius = ballOrbitRadius;
 
       // Tick detection
       _detectTick();
 
       if (t >= 1) {
-        // Transition to settle phase
-        phase        = 'spin';  // will be reset below
-        spinStartTime = timestamp;
-        phase        = 'settle';
+        // Capture ball state BEFORE switching phase
+        _settleStartAngle  = ballAngle;
+        _settleStartRadius = ballRadius;
+        spinStartTime      = timestamp;
+        phase              = 'settle';
       }
 
     } else if (phase === 'settle') {
@@ -272,21 +274,16 @@
       const ease = easeOutBounce(t);
 
       // Ball spirals inward
-      const orbitEnd   = ballOrbitRadius;
-      const radiusDelta = orbitEnd - ballTargetRadius;
-      ballRadius = orbitEnd - radiusDelta * ease;
+      ballRadius = _settleStartRadius - (_settleStartRadius - ballTargetRadius) * ease;
 
-      // Ball angle converges to target (in wheel-space)
-      // The target is wheel-relative; convert to absolute
-      const absoluteTarget = spinEndAngle + ballTargetAngle - (-HALF_PI); // keep it simple: use raw target
-      // Interpolate last orbit angle to absoluteTarget
-      if (!_settleStartAngle) _settleStartAngle = ballAngle;
-      ballAngle = _settleStartAngle + (absoluteTarget - _settleStartAngle) * ease;
+      // Ball angle drifts to rest at the winning segment
+      ballAngle = _settleStartAngle + (ballTargetAngle - _settleStartAngle) * ease;
 
       if (t >= 1) {
-        phase    = 'done';
-        spinning = false;
-        _settleStartAngle = null;
+        phase              = 'done';
+        spinning           = false;
+        _settleStartAngle  = null;
+        _settleStartRadius = 0;
 
         if (onCompleteCallback) {
           onCompleteCallback(spinWinnerIdx);
@@ -297,7 +294,8 @@
   }
 
   // Persisted across settle phase
-  let _settleStartAngle = null;
+  let _settleStartAngle  = null;
+  let _settleStartRadius = 0;
 
   // ---------------------------------------------------------------------------
   // Tick detection
@@ -417,39 +415,38 @@
   }
 
   function _drawLabel(cx, cy, outerR, startAngle, endAngle, name) {
-    const midAngle  = (startAngle + endAngle) / 2;
-    const labelR    = outerR * 0.65;
-    const textX     = cx + labelR * Math.cos(midAngle);
-    const textY     = cy + labelR * Math.sin(midAngle);
-
-    const arcSpan  = endAngle - startAngle;
-    const maxWidth = arcSpan * labelR * 0.9; // approximate chord length
+    const midAngle = (startAngle + endAngle) / 2;
+    const labelR   = outerR * 0.55;
 
     ctx.save();
-    ctx.translate(textX, textY);
-    ctx.rotate(midAngle + HALF_PI); // text reads outward from center
+    ctx.translate(cx, cy);
 
-    // Determine font size that fits
-    let fontSize = Math.min(13, Math.max(8, outerR * 0.07));
-    ctx.font = `bold ${fontSize}px sans-serif`;
-    ctx.textAlign    = 'center';
-    ctx.textBaseline = 'middle';
+    // Determine if text would be upside down
+    const normAngle = ((midAngle % TWO_PI) + TWO_PI) % TWO_PI;
+    const flip = normAngle > HALF_PI && normAngle < HALF_PI * 3;
 
-    // Truncate if needed
-    let label = name;
-    if (ctx.measureText(label).width > maxWidth) {
-      while (label.length > 1 && ctx.measureText(label + '...').width > maxWidth) {
-        label = label.slice(0, -1);
-      }
-      label = label + '...';
+    ctx.rotate(midAngle);
+    if (flip) {
+      ctx.rotate(Math.PI);
+      ctx.translate(-labelR, 0);
+    } else {
+      ctx.translate(labelR * 0.3, 0);
     }
 
-    // Shadow for legibility
-    ctx.shadowColor   = 'rgba(0,0,0,0.6)';
-    ctx.shadowBlur    = 3;
-    ctx.shadowOffsetX = 1;
-    ctx.shadowOffsetY = 1;
-    ctx.fillStyle = '#ffffff';
+    const segCount = displaySegments.length;
+    const fontSize = Math.max(8, Math.min(13, 140 / segCount));
+    ctx.font = `bold ${fontSize}px system-ui, sans-serif`;
+    ctx.textAlign    = flip ? 'right' : 'left';
+    ctx.textBaseline = 'middle';
+
+    // Truncate name: remove parenthetical text, then clip to max chars
+    let label = name.replace(/\s*\(.*\)/, '');
+    const maxChars = segCount > 10 ? 10 : 14;
+    if (label.length > maxChars) label = label.slice(0, maxChars - 1) + '..';
+
+    ctx.shadowColor = 'rgba(0,0,0,0.8)';
+    ctx.shadowBlur  = 4;
+    ctx.fillStyle   = '#ffffff';
     ctx.fillText(label, 0, 0);
 
     ctx.restore();
