@@ -315,6 +315,8 @@
     document.getElementById('result-overlay').classList.remove('visible');
     document.getElementById('wheel-post-spin').style.display = 'none';
     document.getElementById('spinning-label').classList.add('visible');
+    const ri = document.getElementById('route-info');
+    if (ri) ri.style.display = 'none';
 
     window.BobaAudio.playSpinStart();
     window.BobaWheel.spin(winnerIdx, onSpinComplete);
@@ -366,7 +368,7 @@
     const venues  = window.BobaData.venues  || {};
     const startObj  = starts[state.startKey];
     const venueObj  = venues[state.venueKey];
-    if (!startObj || !venueObj || !place.coords) {
+    if (!startObj || !venueObj || !place.lat) {
       routeInfo.style.display = 'none';
       return;
     }
@@ -374,10 +376,10 @@
     const startName = startObj.label || startObj.name || state.startKey;
     const venueName = venueObj.label || venueObj.name || state.venueKey;
 
-    const leg1Min = travelMin(startObj.coords, place.coords);
-    const leg2Min = travelMin(place.coords, venueObj.coords);
+    const leg1Min = travelMin(startObj, place);
+    const leg2Min = travelMin(place, venueObj);
     const totalMin = leg1Min + leg2Min;
-    const directMin = travelMin(startObj.coords, venueObj.coords);
+    const directMin = travelMin(startObj, venueObj);
     const extraMin  = totalMin - directMin;
 
     leg1El.innerHTML = `<span>${startName} &rarr; ${place.name}</span><span>${leg1Min} min</span>`;
