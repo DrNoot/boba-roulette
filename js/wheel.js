@@ -78,6 +78,12 @@
   let touchVelocityHistory = []; // recent angular velocities for flick detection
   let touchStartTime = 0;
 
+  // Delayed friction: track when wheel/ball were launched
+  let wheelLaunchTime = 0;  // performance.now() when wheel was flicked
+  let ballLaunchTime = 0;   // performance.now() when ball was flicked
+  const FRICTION_DELAY = 2.0; // seconds of near-zero friction after launch
+  const FRICTION_RAMP  = 1.5; // seconds to ramp from zero to full friction
+
   // RAF
   let rafId = null, lastTimestamp = null;
 
@@ -135,8 +141,10 @@
     settleProgress     = 0;
 
     wheelAngularVel  = 18 + Math.random() * 8;
+    wheelLaunchTime  = performance.now();
     initialBallSpeed = -(14 + Math.random() * 8);
     ballAngularVel   = initialBallSpeed;
+    ballLaunchTime   = performance.now();
     ballAngle  = -HALF_PI;
     ballRadius = ballOrbitRadius;
     phase = 'ballLaunched';
@@ -156,6 +164,7 @@
 
     initialBallSpeed = ballVel;
     ballAngularVel   = ballVel;
+    ballLaunchTime   = performance.now();
     ballAngle  = -HALF_PI;
     ballRadius = ballOrbitRadius;
     phase = 'ballLaunched';
@@ -285,6 +294,7 @@
         // User flicked the wheel
         if (Math.abs(flickVel) > 1.5) {
           wheelAngularVel = flickVel;
+          wheelLaunchTime = performance.now();
           phase = 'wheelCoasting';
           if (onWheelFlick) onWheelFlick(flickVel);
           _scheduleRender();
@@ -345,6 +355,7 @@
       flickVel = Math.sign(flickVel) * Math.min(Math.abs(flickVel), 50);
       if (phase === 'ready' && Math.abs(flickVel) > 1.5) {
         wheelAngularVel = flickVel;
+        wheelLaunchTime = performance.now();
         phase = 'wheelCoasting';
         if (onWheelFlick) onWheelFlick(flickVel);
         _scheduleRender();
@@ -381,13 +392,27 @@
   }
 
   // ---------------------------------------------------------------------------
+  // Friction with delayed ramp-up
+  // ---------------------------------------------------------------------------
+  function _getFriction(baseFriction, launchTime) {
+    // Returns effective friction factor. Near 1.0 (no friction) right after launch,
+    // ramping to baseFriction over FRICTION_DELAY + FRICTION_RAMP seconds.
+    const elapsed = (performance.now() - launchTime) / 1000;
+    if (elapsed < FRICTION_DELAY) return 1.0; // zero friction
+    const rampT = Math.min((elapsed - FRICTION_DELAY) / FRICTION_RAMP, 1.0);
+    // Interpolate from 1.0 (no friction) to baseFriction
+    return 1.0 + (baseFriction - 1.0) * rampT;
+  }
+
+  // ---------------------------------------------------------------------------
   // Physics update
   // ---------------------------------------------------------------------------
   function _update(dt) {
     // Wheel always drifts with friction (all phases except idle when stationary)
     if (!dragging && Math.abs(wheelAngularVel) > 0.01) {
-      wheelAngle      += wheelAngularVel * dt;
-      wheelAngularVel *= Math.pow(WHEEL_FRICTION, dt * 60);
+      wheelAngle += wheelAngularVel * dt;
+      const wFriction = wheelLaunchTime ? _getFriction(WHEEL_FRICTION, wheelLaunchTime) : WHEEL_FRICTION;
+      wheelAngularVel *= Math.pow(wFriction, dt * 60);
     } else if (!dragging) {
       wheelAngularVel = 0;
     }
@@ -396,7 +421,6 @@
 
     // wheelCoasting: wheel spinning, waiting for ball flick. Just let wheel decelerate.
     if (phase === 'wheelCoasting') {
-      // If wheel has nearly stopped without ball flick, go back to ready
       if (Math.abs(wheelAngularVel) < 0.3) {
         phase = 'ready';
         wheelAngularVel = 0;
@@ -405,8 +429,9 @@
     }
 
     if (phase === 'ballLaunched') {
-      ballAngle      += ballAngularVel * dt;
-      ballAngularVel *= Math.pow(BALL_FRICTION, dt * 60);
+      ballAngle += ballAngularVel * dt;
+      const bFriction = ballLaunchTime ? _getFriction(BALL_FRICTION, ballLaunchTime) : BALL_FRICTION;
+      ballAngularVel *= Math.pow(bFriction, dt * 60);
 
       // Ball drops inward as it slows (quadratic for dramatic late drop, like real centrifugal force)
       const speedRatio = Math.min(1, Math.abs(ballAngularVel) / Math.abs(initialBallSpeed));
